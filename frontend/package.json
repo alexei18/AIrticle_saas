@@ -1,0 +1,43 @@
+{
+  "name": "semrush-saas-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mantine/charts": "^7.1.0",
+    "@mantine/core": "^7.1.0",
+    "@mantine/dates": "^7.1.0",
+    "@mantine/form": "^7.17.8",
+    "@mantine/hooks": "^7.1.0",
+    "@mantine/notifications": "^7.1.0",
+    "@mantine/spotlight": "^7.1.0",
+    "@tabler/icons-react": "^2.40.0",
+    "axios": "^1.5.0",
+    "chart.js": "^4.5.0",
+    "dayjs": "^1.11.10",
+    "lucide-react": "^0.539.0",
+    "next": "14.0.0",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.3.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^2.8.0",
+    "zustand": "^4.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.0",
+    "@types/react": "^18.2.25",
+    "@types/react-dom": "^18.2.10",
+    "eslint": "^8.51.0",
+    "eslint-config-next": "14.0.0",
+    "postcss": "^8.4.31",
+    "postcss-preset-mantine": "^1.7.0",
+    "postcss-simple-vars": "^7.0.1",
+    "typescript": "^5.2.2"
+  }
+}

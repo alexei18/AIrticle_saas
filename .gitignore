@@ -1,0 +1,23 @@
+# Foldere node_modules
+backend/node_modules
+frontend/node_modules
+
+# Fișiere de log
+*.log
+
+# Fișiere .env
+backend/.env
+frontend/.env
+*.env
+
+
+# Fișiere cache și temporare
+.DS_Store
+.claude
+
+# Next.js build files
+frontend/.next/
+
+
+
+google-console-credentials.json
