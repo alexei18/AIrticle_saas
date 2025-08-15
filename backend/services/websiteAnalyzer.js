@@ -34,9 +34,26 @@ class WebsiteAnalyzer {
     }
   }
 
-  collectQuantitativeData($) {
+  collectQuantitativeData($, url) {
     let quantitativeScore = 100;
     const issues = [];
+    const suggestions = [];
+
+    // Verificare Sitemap.xml (adăugată)
+    // Nota: Această verificare este simplistă și presupune că sitemap-ul este la rădăcină.
+    // O implementare mai robustă ar căuta link-ul în robots.txt.
+    // Pentru moment, vom sugera doar existența lui.
+    suggestions.push("Verifică dacă există un fișier sitemap.xml la rădăcina domeniului pentru a ajuta motoarele de căutare să descopere toate paginile.");
+
+    // Verificare Schema.org (adăugată)
+    const schemaScripts = $('script[type="application/ld+json"]');
+    if (schemaScripts.length === 0) {
+      quantitativeScore -= 10;
+      issues.push("Conținut: Nu s-au găsit date structurate Schema.org (JSON-LD).");
+      suggestions.push("Adaugă date structurate (Schema.org) pentru a oferi context motoarelor de căutare despre conținutul paginii.");
+    } else {
+      suggestions.push("Bun! Pagina folosește date structurate (Schema.org). Asigură-te că sunt valide și relevante.");
+    }
     
     const title = $('title').text().trim();
     if (!title) { quantitativeScore -= 10; issues.push("Tehnic: Lipsește eticheta <title>."); }
@@ -70,6 +87,7 @@ class WebsiteAnalyzer {
       wordCount,
       contentSample: textContent.replace(/\s\s+/g, ' ').trim().substring(0, 4000),
       issues,
+      suggestions, // Adăugat
       quantitativeScore: Math.max(0, quantitativeScore)
     };
   }

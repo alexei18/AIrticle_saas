@@ -62,6 +62,7 @@ export interface CrawledPage {
   title: string;
   seoScore: number | null;
   issues: string[];
+  suggestions: string[]; // Adăugat
   aiRecommendations: string[];
 }
 

@@ -1,13 +1,14 @@
 const { URL } = require('url');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const axios = require('axios'); // Adăugat
 puppeteer.use(StealthPlugin());
 
 class RecursiveCrawler {
     constructor(extractor) {
         this.extractor = extractor;
         this.maxConcurrentRequests = 5;
-        this.maxPagesToCrawl = 200;
+        this.maxPagesToCrawl = 1000; // MODIFICAT: Mărit la 1000
         this.PRODUCT_URL_LIMIT = 50;
     }
 
@@ -36,20 +37,27 @@ class RecursiveCrawler {
         const patternCounts = new Map();
 
         try {
-            const queue = [{ url: startUrl, depth: 4 }];
+            const queue = [startUrl]; // MODIFICAT: Coada conține doar URL-uri
             const crawledUrls = new Set([startUrl]);
             const allProcessedPages = [];
+
+            // Verificare robots.txt (adăugat)
+            try {
+                const robotsUrl = new URL('/robots.txt', startUrl);
+                const response = await axios.get(robotsUrl.href);
+                if (response.status === 200) {
+                    console.log(`[Crawler] ✅ robots.txt găsit pentru ${startUrl}.`);
+                    // Aici s-ar putea adăuga logica de parsare a regulilor din robots.txt
+                }
+            } catch (error) {
+                console.warn(`[Crawler] ⚠️ Nu s-a putut accesa robots.txt pentru ${startUrl}. Se continuă fără reguli.`);
+            }
 
             while (queue.length > 0 && allProcessedPages.length < this.maxPagesToCrawl) {
                 const batch = queue.splice(0, this.maxConcurrentRequests);
                 console.log(`[Crawler] Processing batch of ${batch.length}. Queue: ${queue.length}. Found: ${allProcessedPages.filter(p => !p.error).length}`);
 
-                const promises = batch.map(async ({ url, depth }) => {
-                    if (depth <= 0) {
-                        console.log(`[Crawler] 📉 Depth limit reached for: ${url}`);
-                        return null;
-                    }
-
+                const promises = batch.map(async (url) => {
                     const pathPattern = this.getUrlPattern(new URL(url).pathname);
                     const count = patternCounts.get(pathPattern) || 0;
                     if (count >= this.PRODUCT_URL_LIMIT) {
@@ -58,7 +66,7 @@ class RecursiveCrawler {
                     }
                     patternCounts.set(pathPattern, count + 1);
 
-                    console.log(`[Crawler] ➡️ Crawling (depth ${5 - depth}): ${url}`);
+                    console.log(`[Crawler] ➡️ Crawling: ${url}`);
                     const pageData = await this.extractor.extract(url, browser);
                     
                     if (!pageData) {
@@ -77,7 +85,7 @@ class RecursiveCrawler {
                     newLinks.forEach(link => {
                         if (this.isValidUrl(link) && !crawledUrls.has(link)) {
                             crawledUrls.add(link);
-                            nextLinks.push({ url: link, depth: depth - 1 });
+                            nextLinks.push(link);
                         } else if (!this.isValidUrl(link)) {
                             console.warn(`[Crawler] 🚫 Invalid URL found and skipped: ${link}`);
                         }

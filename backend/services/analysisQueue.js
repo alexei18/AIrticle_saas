@@ -62,6 +62,7 @@ analysisQueue.process('general-crawl', async (job) => {
               websiteId: website.id, 
               seoScore: combinedScore, 
               issues: quantitativeAnalysis.issues,
+              suggestions: quantitativeAnalysis.suggestions, // ADĂUGAT
               aiRecommendations: qualitativeAnalysis.recommendations
           };
         });

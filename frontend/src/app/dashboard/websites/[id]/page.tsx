@@ -3,13 +3,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Title, Card, Stack, Text, Button, Group, Badge, SimpleGrid,
-  Alert, Tabs, Paper, ThemeIcon, Center, Loader, List, Accordion, RingProgress, Progress
+  Alert, Tabs, Paper, ThemeIcon, Center, Loader, List, Accordion, RingProgress, Progress, Modal, Code, CopyButton, Tooltip, ActionIcon
 } from '@mantine/core';
 import {
   IconAnalyze, IconArrowLeft, IconAlertCircle, IconCheck, IconClock, IconFileText,
-  IconRefresh, IconWorld, IconX, IconChartLine, IconBulb, IconTools, IconEdit, IconSeo
+  IconRefresh, IconWorld, IconX, IconChartLine, IconBulb, IconTools, IconEdit, IconSeo, IconCopy, IconSitemap
 } from '@tabler/icons-react';
-import { websitesApi, analysisApi } from '@/lib/api';
+import { websitesApi, analysisApi, aiSuggestionsApi } from '@/lib/api';
 import { notifications } from '@mantine/notifications';
 import { Website, WebsiteAnalysis, CrawledPage, AnalysisReport, Recommendation } from '@/types';
 
@@ -24,6 +24,15 @@ export default function WebsiteDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeTab, setActiveTab] = useState<string | null>('overview');
+
+  // State pentru noul tab de sugestii
+  const [showSuggestionsTab, setShowSuggestionsTab] = useState(false);
+
+  // State pentru modalul de generare
+  const [modalOpened, setModalOpened] = useState(false);
+  const [modalContent, setModalContent] = useState('');
+  const [modalTitle, setModalTitle] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const fetchWebsiteDetails = useCallback(async () => {
     if (!websiteId) return;
@@ -67,6 +76,18 @@ export default function WebsiteDetailsPage() {
     }
   }, [websiteId, fetchWebsiteDetails, fetchLatestAnalysis, fetchCrawledPages]);
 
+  // Verifică dacă trebuie afișat tab-ul de sugestii
+  useEffect(() => {
+    if (crawledPages && crawledPages.length > 0) {
+      const hasMissingSuggestions = crawledPages.some(page =>
+        page.suggestions?.some(s => s.includes('sitemap.xml') || s.includes('Schema.org'))
+      );
+      setShowSuggestionsTab(hasMissingSuggestions);
+    } else {
+      setShowSuggestionsTab(false);
+    }
+  }, [crawledPages]);
+
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
     if (isAnalyzing) {
@@ -93,6 +114,35 @@ export default function WebsiteDetailsPage() {
     } catch (error: any) {
       setIsAnalyzing(false);
       notifications.show({ title: 'Eroare', message: 'Analiza nu a putut fi pornită.', color: 'red' });
+    }
+  };
+
+  const handleGenerateSitemap = async () => {
+    if (!website) return;
+    setIsGenerating(true);
+    setModalTitle('Sitemap XML Generat');
+    try {
+      const sitemap = await aiSuggestionsApi.generateSitemap(website.id);
+      setModalContent(sitemap);
+      setModalOpened(true);
+    } catch (error) {
+      notifications.show({ title: 'Eroare', message: 'Sitemap-ul nu a putut fi generat.', color: 'red' });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateSchema = async (pageId: number) => {
+    setIsGenerating(true);
+    setModalTitle('Schema.org (JSON-LD) Generat');
+    try {
+      const schema = await aiSuggestionsApi.generateSchema(pageId);
+      setModalContent(JSON.stringify(schema, null, 2));
+      setModalOpened(true);
+    } catch (error) {
+      notifications.show({ title: 'Eroare', message: 'Schema nu a putut fi generată.', color: 'red' });
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -146,6 +196,11 @@ export default function WebsiteDetailsPage() {
         <Tabs.List>
           <Tabs.Tab value="overview" leftSection={<IconAnalyze size={16} />}>Sumar</Tabs.Tab>
           <Tabs.Tab value="pages" leftSection={<IconFileText size={16} />}>Analiză Pagini ({crawledPages.length})</Tabs.Tab>
+          {showSuggestionsTab && (
+            <Tabs.Tab value="ai-suggestions" leftSection={<IconBulb size={16} />} color="blue">
+              Recomandări AI
+            </Tabs.Tab>
+          )}
           <Tabs.Tab value="technical" leftSection={<IconTools size={16} />}>SEO Tehnic</Tabs.Tab>
           <Tabs.Tab value="content" leftSection={<IconEdit size={16} />}>Conținut</Tabs.Tab>
           <Tabs.Tab value="semrush" leftSection={<IconWorld size={16} />}>SEMrush</Tabs.Tab>
@@ -168,6 +223,54 @@ export default function WebsiteDetailsPage() {
               </Stack>
             </Paper>
           )}
+        </Tabs.Panel>
+
+        <Tabs.Panel value="ai-suggestions" pt="lg">
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+            <Card withBorder>
+              <Group justify="space-between" mb="md">
+                <Title order={3}>Generator Sitemap.xml</Title>
+                <IconSitemap size={24} color="gray" />
+              </Group>
+              <Text c="dimmed" size="sm" mb="lg">
+                Un sitemap ajută motoarele de căutare să descopere și să indexeze eficient toate paginile website-ului tău. Analiza noastră a indicat că un sitemap ar putea lipsi sau fi incomplet.
+              </Text>
+              <Button
+                fullWidth
+                leftSection={<IconSitemap size={16} />}
+                onClick={handleGenerateSitemap}
+                loading={isGenerating && modalTitle.includes('Sitemap')}
+              >
+                Generează Sitemap.xml
+              </Button>
+            </Card>
+            <Card withBorder>
+              <Group justify="space-between" mb="md">
+                <Title order={3}>Generator Schema.org</Title>
+                <IconSeo size={24} color="gray" />
+              </Group>
+              <Text c="dimmed" size="sm" mb="lg">
+                Datele structurate (Schema.org) oferă context motoarelor de căutare, îmbunătățind modul în care paginile tale apar în rezultate. Mai jos sunt paginile unde nu am detectat o schemă.
+              </Text>
+              <Stack gap="xs">
+                {crawledPages.filter(p => p.suggestions?.some(s => s.includes('Schema.org'))).map(page => (
+                  <Paper key={page.id} withBorder p="xs" radius="sm">
+                    <Group justify="space-between">
+                      <Text size="sm" truncate maw={250}>{page.url.replace(`https://${website?.domain}`, '') || '/'}</Text>
+                      <Button
+                        size="compact-xs"
+                        variant="light"
+                        onClick={() => handleGenerateSchema(page.id)}
+                        loading={isGenerating && modalTitle.includes('Schema')}
+                      >
+                        Generează Schema
+                      </Button>
+                    </Group>
+                  </Paper>
+                ))}
+              </Stack>
+            </Card>
+          </SimpleGrid>
         </Tabs.Panel>
 
         <Tabs.Panel value="pages" pt="lg">
@@ -232,6 +335,27 @@ export default function WebsiteDetailsPage() {
           ) : <Center p="xl"><Text>Rulează o analiză pentru a vedea datele de la SEMrush.</Text></Center>}
         </Tabs.Panel>
       </Tabs>
+
+      <Modal opened={modalOpened} onClose={() => setModalOpened(false)} title={modalTitle} size="xl">
+        <Paper pos="relative">
+          <Code block style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+            {modalContent}
+          </Code>
+          <CopyButton value={modalContent}>
+            {({ copied, copy }) => (
+              <Tooltip label={copied ? 'Copiat!' : 'Copiază'} withArrow position="left">
+                <ActionIcon 
+                  color={copied ? 'teal' : 'gray'} 
+                  onClick={copy}
+                  style={{ position: 'absolute', top: 5, right: 5 }}
+                >
+                  <IconCopy size={16} />
+                </ActionIcon>
+              </Tooltip>
+            )}
+          </CopyButton>
+        </Paper>
+      </Modal>
     </Stack>
   );
 }

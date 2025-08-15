@@ -4,8 +4,11 @@ const { URL } = require('url');
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+const WebsiteAnalyzer = require('./websiteAnalyzer');
+
 class PageExtractor {
     constructor() {
+        this.analyzer = new WebsiteAnalyzer();
         this.timeout = 45000;
         this.axiosInstance = axios.create({
             timeout: 15000,
@@ -70,6 +73,8 @@ class PageExtractor {
             }
 
             const $ = cheerio.load(bodyHtml);
+            const pageAnalysis = this.analyzer.collectQuantitativeData($, url);
+
             $('body').find('script, style, nav, footer, header, aside, form, noscript').remove();
             const content = $('body').text().replace(/\s\s+/g, ' ').trim().substring(0, 15000);
             
@@ -87,8 +92,7 @@ class PageExtractor {
 
             return {
                 url,
-                title: $('title').first().text().trim() || 'No Title Found',
-                metaDescription: $('meta[name="description"]').attr('content')?.trim() || '',
+                ...pageAnalysis,
                 headings,
                 internalLinks: Array.from(internalLinks),
                 content,

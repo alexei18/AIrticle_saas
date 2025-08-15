@@ -15,6 +15,7 @@ const googleAnalyticsRoutes = require('./routes/googleAnalytics');
 const aiAnalyticsRoutes = require('./routes/aiAnalytics');
 const dashboardRoutes = require('./routes/dashboard');
 const seoRoutes = require('./routes/seo');
+const aiSuggestionsRoutes = require('./routes/aiSuggestions'); // Adăugat
 const { queue: analysisQueue } = require('./services/analysisQueue');
 const KeywordService = require('./services/keywordService');
 const RankTrackingService = require('./services/rankTrackingService'); // NOU: Importăm serviciul de tracking
@@ -49,6 +50,7 @@ app.use('/api/google-analytics', googleAnalyticsRoutes);
 app.use('/api/ai-analytics', aiAnalyticsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/seo', seoRoutes);
+app.use('/api/ai-suggestions', aiSuggestionsRoutes); // Adăugat
 
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: 'API endpoint not found' });

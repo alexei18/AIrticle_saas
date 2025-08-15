@@ -54,7 +54,7 @@ router.get('/latest/:websiteId', async (req, res) => {
 router.get('/:websiteId/crawled-pages', async (req, res) => {
     const parseCrawledPageJSON = (page) => {
         const data = page.toJSON();
-        ['issues', 'headings', 'aiRecommendations'].forEach(key => {
+        ['issues', 'headings', 'aiRecommendations', 'suggestions'].forEach(key => {
             if (typeof data[key] === 'string') {
                 try { data[key] = JSON.parse(data[key]); } catch (e) { data[key] = []; }
             }

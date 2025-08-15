@@ -230,3 +230,16 @@ export const googleAnalyticsApi = {
     return response.data;
   }
 };
+
+export const aiSuggestionsApi = {
+  generateSitemap: async (websiteId: number): Promise<string> => {
+    const response = await axiosInstance.get(`/ai-suggestions/sitemap/${websiteId}`, {
+      responseType: 'text', // Important pentru a primi XML ca text
+    });
+    return response.data;
+  },
+  generateSchema: async (pageId: number): Promise<any> => {
+    const response = await axiosInstance.get(`/ai-suggestions/schema/${pageId}`);
+    return response.data;
+  },
+};

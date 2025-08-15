@@ -73,6 +73,7 @@ const CrawledPage = sequelize.define('CrawledPage', {
   headings: { type: DataTypes.JSON },
   seoScore: { type: DataTypes.DECIMAL(5, 2), field: 'seo_score' },
   issues: { type: DataTypes.JSON },
+  suggestions: { type: DataTypes.JSON }, // ADĂUGAT
   aiRecommendations: { type: DataTypes.JSON, field: 'ai_recommendations' }
 }, { tableName: 'crawled_pages', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
