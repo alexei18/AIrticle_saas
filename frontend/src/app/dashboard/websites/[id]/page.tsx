@@ -7,11 +7,11 @@ import {
 } from '@mantine/core';
 import {
   IconAnalyze, IconArrowLeft, IconAlertCircle, IconCheck, IconClock, IconFileText,
-  IconRefresh, IconWorld, IconX, IconChartLine, IconBulb, IconTools, IconEdit, IconSeo, IconCopy, IconSitemap
+  IconRefresh, IconWorld, IconX, IconChartLine, IconBulb, IconTools, IconEdit, IconSeo, IconCopy, IconSitemap, IconLink
 } from '@tabler/icons-react';
 import { websitesApi, analysisApi, aiSuggestionsApi } from '@/lib/api';
 import { notifications } from '@mantine/notifications';
-import { Website, WebsiteAnalysis, CrawledPage, AnalysisReport, Recommendation } from '@/types';
+import { Website, WebsiteAnalysis, CrawledPage, AnalysisReport, Recommendation, Backlink } from '@/types';
 
 export default function WebsiteDetailsPage() {
   const params = useParams();
@@ -21,7 +21,9 @@ export default function WebsiteDetailsPage() {
   const [website, setWebsite] = useState<Website | null>(null);
   const [analysis, setAnalysis] = useState<WebsiteAnalysis | null>(null);
   const [crawledPages, setCrawledPages] = useState<CrawledPage[]>([]);
+  const [backlinks, setBacklinks] = useState<Backlink[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingBacklinks, setLoadingBacklinks] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeTab, setActiveTab] = useState<string | null>('overview');
 
@@ -65,16 +67,30 @@ export default function WebsiteDetailsPage() {
     } catch (error) { setCrawledPages([]); }
   }, [websiteId]);
 
+  const fetchBacklinks = useCallback(async () => {
+    if (!websiteId) return;
+    setLoadingBacklinks(true);
+    try {
+      const response = await websitesApi.getBacklinks(parseInt(websiteId));
+      setBacklinks(response.backlinks || []);
+    } catch (error) {
+      setBacklinks([]);
+      notifications.show({ title: 'Eroare Backlinks', message: 'Nu am putut încărca backlink-urile.', color: 'red' });
+    } finally {
+      setLoadingBacklinks(false);
+    }
+  }, [websiteId]);
+
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      await Promise.all([fetchWebsiteDetails(), fetchLatestAnalysis(), fetchCrawledPages()]);
+      await Promise.all([fetchWebsiteDetails(), fetchLatestAnalysis(), fetchCrawledPages(), fetchBacklinks()]);
       setLoading(false);
     };
     if (websiteId) {
       init();
     }
-  }, [websiteId, fetchWebsiteDetails, fetchLatestAnalysis, fetchCrawledPages]);
+  }, [websiteId, fetchWebsiteDetails, fetchLatestAnalysis, fetchCrawledPages, fetchBacklinks]);
 
   // Verifică dacă trebuie afișat tab-ul de sugestii
   useEffect(() => {
@@ -203,7 +219,7 @@ export default function WebsiteDetailsPage() {
           )}
           <Tabs.Tab value="technical" leftSection={<IconTools size={16} />}>SEO Tehnic</Tabs.Tab>
           <Tabs.Tab value="content" leftSection={<IconEdit size={16} />}>Conținut</Tabs.Tab>
-          <Tabs.Tab value="semrush" leftSection={<IconWorld size={16} />}>SEMrush</Tabs.Tab>
+          <Tabs.Tab value="backlinks" leftSection={<IconLink size={16} />}>Backlinks ({backlinks.length})</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="overview" pt="lg">
@@ -315,24 +331,46 @@ export default function WebsiteDetailsPage() {
         </Tabs.Panel>
 
         <Tabs.Panel value="content" pt="lg">
-          {!isAnalyzing && analysis ? <AnalysisPanel title="Sumar Agregat - Analiză Conținut" report={analysis.contentReport} /> : <Center p="xl"><Text>Rulează o analiză pentru a vedea sumarul de conținut.</Text></Center>}
+          {!isAnalyzing && analysis ? <AnalysisPanel title="Sumar Ag-regat - Analiză Conținut" report={analysis.contentReport} /> : <Center p="xl"><Text>Rulează o analiză pentru a vedea sumarul de conținut.</Text></Center>}
         </Tabs.Panel>
 
-        <Tabs.Panel value="semrush" pt="lg">
-          {!isAnalyzing && analysis && analysis.semrushReport ? (
-            <Card withBorder>
-              <Title order={3} mb="md">Sumar SEMrush</Title>
-              {analysis.semrushReport.error ? <Alert color="orange" title="Date Indisponibile">{analysis.semrushReport.error}</Alert> :
-                analysis.semrushReport.data ? (
-                  <SimpleGrid cols={2}>
-                    <Text><strong>Scor Autoritate:</strong> {analysis.semrushReport.data.rank}</Text>
-                    <Text><strong>Keywords Organice:</strong> {analysis.semrushReport.data.organicKeywords?.toLocaleString()}</Text>
-                    <Text><strong>Trafic Estimat:</strong> {analysis.semrushReport.data.organicTraffic?.toLocaleString()}</Text>
-                    <Text><strong>Cost Trafic Est.:</strong> ${analysis.semrushReport.data.organicCost?.toLocaleString()}</Text>
-                  </SimpleGrid>
-                ) : <Text>Nu s-au putut prelua datele de la SEMrush.</Text>}
-            </Card>
-          ) : <Center p="xl"><Text>Rulează o analiză pentru a vedea datele de la SEMrush.</Text></Center>}
+        <Tabs.Panel value="backlinks" pt="lg">
+          <Card withBorder>
+            <Title order={3} mb="md">Analiza Backlink-urilor</Title>
+            <Text c="dimmed" mb="lg">Lista de backlink-uri care trimit către domeniul tău. Datele sunt furnizate de DataForSEO.</Text>
+            {loadingBacklinks ? (
+              <Center p="xl"><Loader /><Text ml="md">Se încarcă backlink-urile...</Text></Center>
+            ) : backlinks.length > 0 ? (
+              <Table striped highlightOnHover withTableBorder withColumnBorders>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Domeniu Sursă</Table.Th>
+                    <Table.Th>URL Sursă</Table.Th>
+                    <Table.Th>Anchor Text</Table.Th>
+                    <Table.Th>Tip</Table.Th>
+                    <Table.Th>Rank</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {backlinks.map((link, index) => (
+                    <Table.Tr key={index}>
+                      <Table.Td>{link.domain_from}</Table.Td>
+                      <Table.Td><Text truncate maw={300}><a href={link.url_from} target="_blank" rel="noopener noreferrer">{link.url_from}</a></Text></Table.Td>
+                      <Table.Td>{link.anchor || '(empty)'}</Table.Td>
+                      <Table.Td>
+                        <Badge color={link.dofollow ? 'green' : 'orange'} variant="light">
+                          {link.dofollow ? 'Dofollow' : 'Nofollow'}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>{link.rank}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            ) : (
+              <Text c="dimmed" ta="center" p="md">Nu s-au găsit backlink-uri sau serviciul nu este disponibil.</Text>
+            )}
+          </Card>
         </Tabs.Panel>
       </Tabs>
 

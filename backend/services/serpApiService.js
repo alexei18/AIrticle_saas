@@ -199,6 +199,33 @@ class SerpApiService {
       peopleAlsoAsk: (data.related_questions || []).map(item => item.question),
     };
   }
+
+  /**
+   * NOU: Căutare web simplificată pentru AI.
+   * Returnează o listă curată de rezultate relevante.
+   */
+  async searchWeb(query) {
+    const data = await this.makeRequest({
+      engine: 'google',
+      q: query,
+      num: 10 // Ne concentrăm pe primele 10 rezultate
+    });
+
+    if (!data) return [];
+
+    const organicResults = (data.organic_results || []).map(r => ({
+      title: r.title,
+      link: r.link,
+      snippet: r.snippet
+    }));
+
+    const relatedQuestions = (data.related_questions || []).map(q => q.question);
+
+    return {
+      organicResults,
+      relatedQuestions
+    };
+  }
 }
 
 module.exports = SerpApiService;

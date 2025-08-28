@@ -38,7 +38,12 @@ analysisQueue.process('general-crawl', async (job) => {
       throw new Error("Crawler could not access or process any pages from the website.");
     }
     
-    const pagesToAnalyze = allProcessedPages.filter(p => !p.error && !p.errorType);
+    const pagesToAnalyze = allProcessedPages.filter(p => {
+        // Include pages without errors OR pages with partial/fallback success
+        return (!p.error && !p.errorType) || 
+               (p.errorType === 'PARTIAL_SUCCESS') || 
+               (p.errorType === 'FALLBACK_SUCCESS');
+    });
     
     if (pagesToAnalyze.length > 0) {
         const analyzer = new WebsiteAnalyzer();
@@ -47,10 +52,28 @@ analysisQueue.process('general-crawl', async (job) => {
         console.log(`[Queue] Starting analysis for ${pagesToAnalyze.length} valid pages...`);
 
         const pageAnalysisPromises = pagesToAnalyze.map(async (pageData) => {
+          // Handle partial success cases differently
+          if (pageData.errorType === 'PARTIAL_SUCCESS' || pageData.errorType === 'FALLBACK_SUCCESS') {
+              console.log(`[Queue] Processing ${pageData.errorType} page: ${pageData.url}`);
+              return { 
+                  ...pageData, 
+                  websiteId: website.id, 
+                  seoScore: 30, // Give partial pages a base score
+                  issues: [pageData.error || 'Partial content extraction'],
+                  aiRecommendations: ['Consider fixing JavaScript errors to improve content accessibility'] 
+              };
+          }
+          
           const quantitativeAnalysis = await analyzer.analyzePage(pageData.url, browser);
           
           if (quantitativeAnalysis.error) {
-              return { ...pageData, seoScore: 0, issues: [quantitativeAnalysis.error], aiRecommendations: [] };
+              return { 
+                  ...pageData, 
+                  websiteId: website.id, 
+                  seoScore: 0, 
+                  issues: [quantitativeAnalysis.error], 
+                  aiRecommendations: [] 
+              };
           }
           
           const qualitativeAnalysis = await aiGenerator.analyzePageQuality(quantitativeAnalysis);
@@ -82,7 +105,27 @@ analysisQueue.process('general-crawl', async (job) => {
         if (successfullyAnalyzedPages.length > 0) {
             console.log(`[Queue] 💾 Saving ${successfullyAnalyzedPages.length} analyzed pages to the database...`);
             await CrawledPage.destroy({ where: { websiteId: website.id } });
-            await CrawledPage.bulkCreate(successfullyAnalyzedPages);
+            
+            // Insert in batches to avoid max_allowed_packet error
+            const batchSize = 10;
+            for (let i = 0; i < successfullyAnalyzedPages.length; i += batchSize) {
+                const batch = successfullyAnalyzedPages.slice(i, i + batchSize);
+                console.log(`[Queue] 💾 Inserting batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(successfullyAnalyzedPages.length/batchSize)} (${batch.length} pages)`);
+                
+                try {
+                    await CrawledPage.bulkCreate(batch);
+                } catch (error) {
+                    console.error(`[Queue] ❌ Failed to insert batch ${Math.floor(i/batchSize) + 1}:`, error.message);
+                    // Try inserting one by one if batch fails
+                    for (const page of batch) {
+                        try {
+                            await CrawledPage.create(page);
+                        } catch (singleError) {
+                            console.error(`[Queue] ❌ Failed to insert single page ${page.url}:`, singleError.message);
+                        }
+                    }
+                }
+            }
             console.log(`[Queue] ✅ Pages saved successfully.`);
         } else {
             console.warn('[Queue] No pages were successfully analyzed to be saved.');
@@ -92,21 +135,18 @@ analysisQueue.process('general-crawl', async (job) => {
         const totalOnPageScore = successfullyAnalyzedPages.reduce((sum, p) => sum + (p.seoScore || 0), 0);
         const avgOnPageScore = successfullyAnalyzedPages.length > 0 ? Math.round(totalOnPageScore / successfullyAnalyzedPages.length) : 0;
         
-        const domainAnalysisResult = await analyzer.analyzeDomain(website.domain, options.language);
-        const overallScore = Math.round((avgOnPageScore * 0.6) + ((domainAnalysisResult?.score || 0) * 0.4));
+        const overallScore = avgOnPageScore;
         const issueList = successfullyAnalyzedPages.flatMap(p => p.issues || []);
         const technicalIssues = issueList.filter(issue => issue && (issue.toLowerCase().includes('tehnic') || issue.toLowerCase().includes('critic')));
         const contentIssues = issueList.filter(issue => issue && issue.toLowerCase().includes('conținut'));
         const recommendations = await aiGenerator.generateDomainRecommendations({
             totalPages: successfullyAnalyzedPages.length, avgOnPageScore,
-            semrushScore: domainAnalysisResult?.score,
             technicalIssues, contentIssues
         });
         await Analysis.create({
           websiteId: website.id, overallScore,
           technicalReport: { score: avgOnPageScore, issues: technicalIssues },
           contentReport: { score: avgOnPageScore, issues: contentIssues },
-          semrushReport: domainAnalysisResult.data,
           recommendations,
         });
     } else {

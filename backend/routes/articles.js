@@ -24,7 +24,7 @@ router.get('/', async (req, res) => {
       attributes: { exclude: ['content'] },
       include: [{ model: Website, as: 'website', attributes: ['id', 'domain', 'name'] }],
       order: [['created_at', 'DESC']],
-      limit: 50,
+      limit: 20,
       offset: 0
     });
     res.json({ articles: result.rows.map(parseArticleJSON), total: result.count });
@@ -54,6 +54,7 @@ router.post('/generate', async (req, res) => {
         title: Joi.string().required(),
         targetKeywords: Joi.array().items(Joi.string()).min(1).required(),
         siteAnalysis: Joi.object().required(),
+        articleLength: Joi.alternatives().try(Joi.string(), Joi.number()).optional(),
     }).unknown(true).validate(req.body);
     if (error) return res.status(400).json({ error: error.details[0].message });
 
@@ -83,6 +84,7 @@ router.post('/generate-bulk', async (req, res) => {
       websiteId: Joi.number().required(),
       numberOfArticles: Joi.number().min(1).max(20).required(),
       siteAnalysis: Joi.object().optional(),
+      articleLength: Joi.alternatives().try(Joi.string(), Joi.number()).optional(),
     }).unknown(true).validate(req.body);
     if (error) return res.status(400).json({ error: error.details[0].message });
 

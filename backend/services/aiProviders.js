@@ -1,4 +1,5 @@
 const axios = require('axios');
+const SerpApiService = require('./serpApiService'); // Importăm serviciul de căutare
 
 class AIProviderManager {
   constructor() {
@@ -6,6 +7,8 @@ class AIProviderManager {
       { id: 'gemini', fn: this.requestGemini.bind(this), key: process.env.GEMINI_API_KEY },
       { id: 'openai', fn: this.requestOpenAI.bind(this), key: process.env.OPENAI_API_KEY },
     ].filter(p => p.key);
+    
+    this.serpApi = new SerpApiService(); // Instanțiem serviciul de căutare
   }
 
   /**
@@ -14,12 +17,12 @@ class AIProviderManager {
    * @returns {string | null} - String-ul JSON reparat sau null dacă nu poate fi reparat.
    */
   tryToFixJson(jsonString) {
+    // ... implementarea existentă rămâne neschimbată ...
     let openBraces = (jsonString.match(/{/g) || []).length;
     let closeBraces = (jsonString.match(/}/g) || []).length;
     let openBrackets = (jsonString.match(/\[/g) || []).length;
     let closeBrackets = (jsonString.match(/]/g) || []).length;
 
-    // Caută ultimul caracter valid de închidere pentru a tăia orice text corupt de la final
     const lastValidCharIndex = Math.max(jsonString.lastIndexOf('}'), jsonString.lastIndexOf(']'), jsonString.lastIndexOf('"'));
     if (lastValidCharIndex > -1) {
         jsonString = jsonString.substring(0, lastValidCharIndex + 1);
@@ -36,14 +39,15 @@ class AIProviderManager {
     
     try {
         JSON.parse(jsonString);
-        return jsonString; // JSON-ul este acum valid
+        return jsonString;
     } catch (e) {
-        return null; // Nu s-a putut repara
+        return null;
     }
   }
 
   async makeAIRequest(prompt, options = {}) {
-    const { isJson = false, maxTokens = 2048, temperature = 0.7 } = options;
+    // Adăugăm 'tools' la opțiuni
+    const { isJson = false, maxTokens = 4096, temperature = 0.8, tools = null } = options;
 
     if (this.providers.length === 0) {
       console.error("[AIProviderManager] No AI providers configured. Please set API keys in .env file.");
@@ -53,7 +57,8 @@ class AIProviderManager {
     for (const provider of this.providers) {
       try {
         console.log(`[AIProviderManager] Attempting AI request with ${provider.id}...`);
-        let content = await provider.fn(prompt, { isJson, maxTokens, temperature });
+        // Pasăm 'tools' către funcția provider-ului
+        let content = await provider.fn(prompt, { isJson, maxTokens, temperature, tools });
         
         if (isJson) {
           try {
@@ -84,6 +89,7 @@ class AIProviderManager {
   }
 
   async requestOpenAI(prompt, { isJson, maxTokens, temperature }) {
+    // ... implementarea existentă rămâne neschimbată ...
     const response = await axios.post('https://api.openai.com/v1/chat/completions', {
         model: 'gpt-4o',
         messages: [{ role: 'user', content: prompt }],
@@ -97,21 +103,77 @@ class AIProviderManager {
     return response.data.choices[0].message.content;
   }
 
-  async requestGemini(prompt, { isJson, maxTokens, temperature }) {
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${process.env.GEMINI_API_KEY}`, {
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { 
-            temperature, 
-            maxOutputTokens: maxTokens, 
-            ...(isJson && { response_mime_type: "application/json" }) 
-        },
-      }, { 
-          headers: { 'Content-Type': 'application/json' }, 
-          timeout: 90000 
+  async requestGemini(prompt, { isJson, maxTokens, temperature, tools }) {
+    const model = 'gemini-1.5-pro-latest';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+
+    const originalContents = [{ role: 'user', parts: [{ text: prompt }] }];
+
+    let requestBody = {
+      contents: originalContents,
+      generationConfig: { 
+        temperature, 
+        maxOutputTokens: maxTokens, 
+        ...(isJson && { response_mime_type: "application/json" }) 
+      },
+      ...(tools && { tools: tools })
+    };
+
+    // Facem primul request
+    const response = await axios.post(url, requestBody, { 
+      headers: { 'Content-Type': 'application/json' }, 
+      timeout: 120000 
+    });
+
+    const candidate = response.data.candidates[0];
+    const part = candidate.content.parts[0];
+
+    // Verificăm dacă AI-ul a cerut să folosească o unealtă
+    if (part.functionCall) {
+      const functionCall = part.functionCall;
+      const functionName = functionCall.name;
+      const args = functionCall.args;
+
+      console.log(`[AIProviderManager] Gemini requested function call: ${functionName} with args:`, args);
+
+      let functionResponseContent;
+      if (functionName === 'search_web') {
+        const searchResult = await this.serpApi.searchWeb(args.query);
+        functionResponseContent = searchResult;
+      } else {
+        throw new Error(`Unknown function call requested by Gemini: ${functionName}`);
+      }
+
+      // Construim un nou request care conține și rezultatul funcției
+      const newContents = [
+        ...originalContents,
+        { role: 'model', parts: [part] },
+        {
+          role: 'function',
+          parts: [{
+            functionResponse: {
+              name: functionName,
+              response: {
+                content: functionResponseContent,
+              }
+            }
+          }]
         }
-    );
-    return response.data.candidates[0].content.parts[0].text;
+      ];
+      
+      requestBody.contents = newContents;
+
+      // Facem al doilea request pentru a obține răspunsul final
+      const finalResponse = await axios.post(url, requestBody, { 
+        headers: { 'Content-Type': 'application/json' }, 
+        timeout: 120000 
+      });
+      
+      return finalResponse.data.candidates[0].content.parts[0].text;
+    }
+
+    // Dacă nu a fost un functionCall, returnăm textul direct
+    return part.text;
   }
 }
 

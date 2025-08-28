@@ -18,15 +18,19 @@ const seoRoutes = require('./routes/seo');
 const aiSuggestionsRoutes = require('./routes/aiSuggestions'); // Adăugat
 const { queue: analysisQueue } = require('./services/analysisQueue');
 const KeywordService = require('./services/keywordService');
-const RankTrackingService = require('./services/rankTrackingService'); // NOU: Importăm serviciul de tracking
+const RankTrackingService = require('./services/rankTrackingService');
+const GoogleTrendsService = require('./services/googleTrendsService'); // NOU
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
-  credentials: true
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200
 }));
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -36,6 +40,7 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
 
 app.get('/health', (req, res) => res.json({ status: 'OK' }));
 app.get('/', (req, res) => res.json({ message: 'Welcome to the API!' }));
@@ -95,6 +100,12 @@ cron.schedule('0 3 * * *', () => {
   RankTrackingService.runTrackingJob();
 });
 console.log('🕒 Daily rank tracking job scheduled to run at 3:00 AM.');
+
+// NOU: Cron Job pentru Google Trends (rulează zilnic la 2:00 AM)
+cron.schedule('0 2 * * *', () => {
+  GoogleTrendsService.runDailyTrendUpdate();
+});
+console.log('🕒 Daily Google Trends update job scheduled to run at 2:00 AM.');
 
 
 startServer();

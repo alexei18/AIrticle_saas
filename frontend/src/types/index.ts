@@ -4,6 +4,7 @@ export interface User {
   firstName: string;
   lastName: string;
   planType: 'starter' | 'professional' | 'enterprise';
+  emailVerified: boolean;
   createdAt: string;
 }
 
@@ -29,6 +30,7 @@ export interface Keyword {
   searchVolume: number | null;
   difficultyScore: number | null;
   currentPosition: number | null;
+  aiTrendScore?: number | null; // Adăugat
   website?: {
     id: number;
     name: string;
@@ -90,12 +92,19 @@ export interface WebsiteAnalysis {
   technicalReport: AnalysisReport | null;
   contentReport: AnalysisReport | null;
   seoReport: AnalysisReport | null;
-  semrushReport: {
-    score: number;
-    error?: string;
-    data?: any; // Aici poți detalia mai mult dacă vrei
-    recommendations?: Recommendation[];
-  } | null;
   recommendations: Recommendation[];
   createdAt: string;
+}
+
+export interface Backlink {
+  type: string;
+  domain_from: string;
+  url_from: string;
+  url_to: string;
+  anchor: string;
+  dofollow: boolean;
+  rank: number;
+  page_from_rank: number;
+  first_seen: string;
+  last_seen: string;
 }

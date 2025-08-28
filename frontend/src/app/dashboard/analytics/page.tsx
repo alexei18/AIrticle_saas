@@ -14,7 +14,7 @@ import {
   IconSearch, IconTarget, IconEye, IconUsers, IconChartLine, IconWorld, IconAlertCircle,
   IconPlayerPlay, IconLink, IconBulb
 } from '@tabler/icons-react';
-import { dashboardApi, AnalyticsData, websitesApi, analysisApi, seoApi } from '@/lib/api';
+import { dashboardApi, AnalyticsData, websitesApi, analysisApi, seoApi, googleAnalyticsApi } from '@/lib/api';
 import { Website } from '@/types';
 import { notifications } from '@mantine/notifications';
 

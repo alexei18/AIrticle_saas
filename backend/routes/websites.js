@@ -153,6 +153,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+const { getBacklinksForDomain } = require('../services/backlinkService');
+
 // Delete a website
 router.delete('/:id', async (req, res) => {
   try {
@@ -168,6 +170,22 @@ router.delete('/:id', async (req, res) => {
     console.error('Delete website error:', error);
     res.status(500).json({ error: 'Failed to delete website.' });
   }
+});
+
+// Get backlinks for a website
+router.get('/:id/backlinks', async (req, res) => {
+    try {
+        const website = await Website.findOne({ where: { id: req.params.id, userId: req.user.id } });
+        if (!website) {
+            return res.status(404).json({ error: 'Website not found' });
+        }
+
+        const backlinks = await getBacklinksForDomain(website.domain);
+        res.json({ backlinks });
+    } catch (error) {
+        console.error('Get backlinks error:', error);
+        res.status(500).json({ error: 'Failed to fetch backlinks.' });
+    }
 });
 
 module.exports = router;

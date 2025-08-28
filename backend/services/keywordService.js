@@ -1,11 +1,65 @@
-const { Keyword } = require('../models');
-const SEMrushService = require('./semrushService');
-const SerpApiService = require('./serpApiService'); // NOU: Avem nevoie și de SerpApi
+const { Keyword, KeywordTrend } = require('../models');
+const SerpApiService = require('./serpApiService');
+const AIProviderManager = require('./aiProviders');
 
 class KeywordService {
   constructor() {
-    this.semrushService = new SEMrushService();
-    this.serpApi = new SerpApiService(); // NOU: Instanțiem SerpApi
+    this.serpApi = new SerpApiService();
+    this.aiProvider = new AIProviderManager();
+  }
+
+  async calculateAiTrendScore(keywordInstance) {
+    if (!keywordInstance) throw new Error('Keyword instance is required.');
+
+    console.log(`[KeywordService] 🧠 Starting AI Trend Score calculation for "${keywordInstance.keyword}"...`);
+
+    const trends = await KeywordTrend.findAll({
+      where: { keywordId: keywordInstance.id },
+      order: [['date', 'DESC']],
+      limit: 90
+    });
+
+    if (trends.length < 14) {
+      console.warn(`[KeywordService] ⚠️ Insufficient trend data for "${keywordInstance.keyword}". Found only ${trends.length} data points.`);
+      await keywordInstance.update({ aiTrendScore: null });
+      return null;
+    }
+
+    const trendDataString = trends.map(t => `${t.date}: ${t.interestScore}`).join('; ');
+
+    const prompt = `
+      Analizează următoarele date SEO pentru cuvântul cheie "${keywordInstance.keyword}" și generează un scor compozit de la 1 la 100, numit "AI Trend Score".
+
+      Date de intrare:
+      1.  **Scor Dificultate SERP:** ${keywordInstance.difficultyScore}/100 (cât de greu este să te clasezi)
+      2.  **Volum Căutare Lunar Estimat:** ${keywordInstance.searchVolume}
+      3.  **Date Google Trends (ultimele 90 de zile, scor 0-100):** ${trendDataString}
+
+      Criterii de analiză pentru scorul final:
+      - **Potențial vs. Dificultate:** Un volum mare și o dificultate mică este ideal.
+      - **Momentum recent:** Compară interesul din ultima săptămână cu cel de acum 30 de zile. Un trend ascendent recent este un semnal foarte pozitiv.
+      - **Stabilitate și Sezonalitate:** Evaluează dacă interesul este constant sau foarte volatil. Un interes stabil sau predictibil sezonier este mai valoros.
+      - **Interes general:** Un scor de interes mediu peste 50 în Google Trends indică o relevanță solidă.
+
+      Pe baza acestor criterii, oferă un singur număr întreg între 1 și 100.
+      Răspunde doar cu un obiect JSON de forma: { "aiTrendScore": <score> }
+    `;
+
+    try {
+      const response = await this.aiProvider.makeAIRequest(prompt, { isJson: true });
+      const score = response.aiTrendScore;
+
+      if (typeof score === 'number' && score >= 1 && score <= 100) {
+        await keywordInstance.update({ aiTrendScore: score });
+        console.log(`[KeywordService] ✅ AI Trend Score for "${keywordInstance.keyword}" is ${score}.`);
+        return score;
+      } else {
+        throw new Error('AI returned an invalid score format.');
+      }
+    } catch (error) {
+      console.error(`[KeywordService] ❌ AI Trend Score calculation failed for "${keywordInstance.keyword}":`, error.message);
+      return null;
+    }
   }
 
   async enrichKeyword(keywordInstance) {
@@ -16,48 +70,23 @@ class KeywordService {
       console.log(`[KeywordService] 🔍 Îmbogățire pentru: "${keyword}"`);
       
       const updateData = { enrichmentStatus: 'failed' };
-      let semrushSuccess = false;
 
-      // --- PASUL 1: Încercăm SEMrush (sursa preferată) ---
-      const [keywordData, difficultyData] = await Promise.all([
-        this.semrushService.getKeywordOverview([keyword]),
-        this.semrushService.getKeywordDifficulty([keyword])
-      ]);
+      // --- PASUL 1: Folosim SerpApi pentru a obține date ---
+      const serpInfo = await this.serpApi.analyzeSerp(keyword);
       
-      const semrushInfo = keywordData?.[0];
-      const difficultyInfo = difficultyData?.[0];
-
-      if (semrushInfo && semrushInfo.searchVolume > 0) {
-        updateData.searchVolume = parseInt(semrushInfo.searchVolume, 10);
-        semrushSuccess = true;
-      }
-      if (difficultyInfo) {
-        const difficulty = parseFloat(difficultyInfo.difficulty);
-        if (!isNaN(difficulty)) {
-          updateData.difficultyScore = difficulty;
-          semrushSuccess = true;
-        }
-      }
-      
-      // --- PASUL 2: Dacă SEMrush a eșuat, încercăm Fallback la SerpApi ---
-      if (!semrushSuccess) {
-        console.log(`[KeywordService] ⚠️ SEMrush a eșuat pentru "${keyword}". Se încearcă fallback la SerpApi...`);
-        const serpInfo = await this.serpApi.analyzeSerp(keyword);
-        
-        if (serpInfo) {
-          // Folosim funcțiile de estimare
-          updateData.searchVolume = this.estimateVolumeFromSerp(serpInfo);
-          updateData.difficultyScore = this.estimateDifficultyFromSerp(serpInfo);
-          console.log(`[KeywordService] 💡 Date estimate de la SerpApi pentru "${keyword}":`, {vol: updateData.searchVolume, diff: updateData.difficultyScore});
-        }
+      if (serpInfo) {
+        // Folosim funcțiile de estimare
+        updateData.searchVolume = this.estimateVolumeFromSerp(serpInfo);
+        updateData.difficultyScore = this.estimateDifficultyFromSerp(serpInfo);
+        console.log(`[KeywordService] 💡 Date estimate de la SerpApi pentru "${keyword}":`, {vol: updateData.searchVolume, diff: updateData.difficultyScore});
       }
 
-      // --- PASUL 3: Actualizăm statusul pe baza datelor obținute ---
+      // --- PASUL 2: Actualizăm statusul pe baza datelor obținute ---
       if (updateData.searchVolume !== undefined && updateData.difficultyScore !== undefined) {
           updateData.enrichmentStatus = 'completed';
           console.log(`[KeywordService] ✅ Date finalizate pentru "${keyword}".`);
       } else {
-          console.log(`[KeywordService] ❌ Toate sursele au eșuat pentru "${keyword}".`);
+          console.log(`[KeywordService] ❌ Sursa de date a eșuat pentru "${keyword}".`);
       }
       
       await keywordInstance.update(updateData);
@@ -90,7 +119,6 @@ class KeywordService {
     }
   }
 
-  // NOU: Am adus funcțiile de estimare aici pentru a le putea folosi
   estimateDifficultyFromSerp(serpInfo) {
       if (!serpInfo || !serpInfo.organicResults) return 50;
       const topResults = serpInfo.organicResults.slice(0, 5);

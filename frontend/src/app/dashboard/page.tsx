@@ -160,21 +160,23 @@ export default function DashboardPage() {
             <Title order={3} mb="md">Website-urile Tale</Title>
             <Stack gap="md">
               {data.websites.slice(0, 4).map((website) => (
-                <Group key={website.id} justify="space-between" p="md" bg="gray.0" radius="md">
-                  <Group>
-                    <ThemeIcon size={40} variant="light" color="blue"><IconWorld size={20} /></ThemeIcon>
-                    <div>
-                      <Text fw={500}>{website.name}</Text>
-                      <Text size="sm" c="dimmed">
-                        {website.domain} • Ultimul crawl: {website.lastCrawledAt ? new Date(website.lastCrawledAt).toLocaleDateString('ro-RO') : 'Niciodată'}
-                      </Text>
-                    </div>
+                <Paper key={website.id} p="md" bg="gray.0" radius="md">
+                  <Group justify="space-between">
+                    <Group>
+                      <ThemeIcon size={40} variant="light" color="blue"><IconWorld size={20} /></ThemeIcon>
+                      <div>
+                        <Text fw={500}>{website.name}</Text>
+                        <Text size="sm" c="dimmed">
+                          {website.domain} • Ultimul crawl: {website.lastCrawledAt ? new Date(website.lastCrawledAt).toLocaleDateString('ro-RO') : 'Niciodată'}
+                        </Text>
+                      </div>
+                    </Group>
+                    <Group>
+                      <Badge color={getStatusColor(website.crawlStatus)} variant="light">{getStatusLabel(website.crawlStatus)}</Badge>
+                      <Button variant="subtle" size="sm" onClick={() => router.push(`/dashboard/websites/${website.id}`)}>Detalii</Button>
+                    </Group>
                   </Group>
-                  <Group>
-                    <Badge color={getStatusColor(website.crawlStatus)} variant="light">{getStatusLabel(website.crawlStatus)}</Badge>
-                    <Button variant="subtle" size="sm" onClick={() => router.push(`/dashboard/websites/${website.id}`)}>Detalii</Button>
-                  </Group>
-                </Group>
+                </Paper>
               ))}
             </Stack>
           </Card>

@@ -34,7 +34,7 @@ router.get('/latest/:websiteId', async (req, res) => {
         
         const responseData = latestAnalysis.toJSON();
         // Parsează câmpurile JSON stocate ca text
-        for (const key of ['technicalReport', 'contentReport', 'semrushReport', 'recommendations']) {
+        for (const key of ['technicalReport', 'contentReport', 'recommendations']) {
             if (typeof responseData[key] === 'string') {
                 try { 
                     responseData[key] = JSON.parse(responseData[key]); 
@@ -89,7 +89,7 @@ router.post('/:websiteId/keyword-research', async (req, res) => {
         const pages = await CrawledPage.findAll({ 
             where: { websiteId }, 
             attributes: ['title', 'headings', 'url', 'metaDescription'],
-            limit: 50 
+            limit: 500 
         });
         
         if (pages.length === 0) {

@@ -12,11 +12,14 @@ import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import {
   IconPlus, IconDots, IconEdit, IconTrash, IconEye, IconRobot,
-  IconBrandOpenai, IconSparkles, IconAlertCircle, IconArticle
+  IconBrandOpenai, IconSparkles, IconAlertCircle, IconArticle, IconDownload, IconFileJson, IconFileWord
 } from '@tabler/icons-react';
+import { Packer } from 'docx';
+import { saveAs } from 'file-saver';
 import { articlesApi, keywordsApi, websitesApi, analysisApi } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { Article, Website, Keyword } from '@/types';
+import { generateDocx } from '@/lib/docxGenerator';
 
 export default function ArticlesPage() {
   const { user } = useAuthStore();
@@ -29,6 +32,7 @@ export default function ArticlesPage() {
   const [bulkGenerateLoading, setBulkGenerateLoading] = useState(false);
   const [opened, { open, close }] = useDisclosure(false);
   const [activeTab, setActiveTab] = useState<string | null>('ai');
+  const [selectedWebsite, setSelectedWebsite] = useState<string | null>(null);
 
   const aiForm = useForm({
     initialValues: {
@@ -129,11 +133,23 @@ export default function ArticlesPage() {
   const handleDelete = async (articleId: number) => {
     try {
       await articlesApi.delete(articleId);
-      notifications.show({ title: 'Articol șters!', color: 'green' });
+      notifications.show({ title: 'Articol șters!', message: 'Articolul a fost șters cu succes.', color: 'green' });
       await fetchData();
     } catch (error: any) {
       notifications.show({ title: 'Eroare la ștergere', message: error.response?.data?.error, color: 'red' });
     }
+  };
+
+  const handleDownloadJson = () => {
+    const dataStr = JSON.stringify(filteredArticles, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    saveAs(blob, 'articles.json');
+  };
+
+  const handleDownloadDocx = async () => {
+    const doc = generateDocx(filteredArticles);
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, 'articles.docx');
   };
 
   const getStatusColor = (status: string) => ({ published: 'green', draft: 'orange', archived: 'gray' })[status] || 'blue';
@@ -141,6 +157,10 @@ export default function ArticlesPage() {
 
   const websiteOptions = websites.map(website => ({ value: String(website.id), label: `${website.name} (${website.domain})` }));
   const keywordOptions = keywords.map(keyword => keyword.keyword);
+
+  const filteredArticles = selectedWebsite
+    ? articles.filter(article => article.websiteId === parseInt(selectedWebsite))
+    : articles;
 
   if (loading) {
     return <Center h="80vh"><Loader /></Center>;
@@ -153,21 +173,41 @@ export default function ArticlesPage() {
           <Title order={1}>Articole</Title>
           <Text size="lg" c="dimmed">Generează și gestionează conținut optimizat SEO</Text>
         </div>
-        <Button leftSection={<IconPlus size={16} />} onClick={open}>Creează Articol</Button>
+        <Group>
+          <Button leftSection={<IconPlus size={16} />} onClick={open}>Creează Articol</Button>
+          <Menu shadow="md" width={200}>
+            <Menu.Target>
+              <Button variant="light" leftSection={<IconDownload size={16} />}>Descarcă</Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item leftSection={<IconFileJson size={14} />} onClick={handleDownloadJson}>Descarcă JSON</Menu.Item>
+              <Menu.Item leftSection={<IconFileWord size={14} />} onClick={handleDownloadDocx}>Descarcă Word</Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+        </Group>
       </Group>
 
-      {articles.length === 0 ? (
+      <Group>
+        <Select
+          placeholder="Filtrează după website"
+          data={[{ value: '', label: 'Toate Website-urile' }, ...websiteOptions]}
+          value={selectedWebsite}
+          onChange={setSelectedWebsite}
+          clearable
+        />
+      </Group>
+
+      {filteredArticles.length === 0 ? (
         <Paper p="xl" ta="center" withBorder>
           <Stack align="center" gap="md">
             <ThemeIcon size={80} variant="light" color="orange"><IconArticle size={40} /></ThemeIcon>
-            <Text size="xl" fw={500}>Niciun articol creat</Text>
-            <Text size="sm" c="dimmed">Creează primul tău articol folosind inteligența artificială.</Text>
-            <Button mt="md" onClick={open}>Creează Primul Articol</Button>
+            <Text size="xl" fw={500}>Niciun articol găsit</Text>
+            <Text size="sm" c="dimmed">Nu există articole care să corespundă filtrelor selectate.</Text>
           </Stack>
         </Paper>
       ) : (
         <SimpleGrid cols={{ base: 1, md: 2, lg: 3 }} spacing="md">
-          {articles.map((article) => (
+          {filteredArticles.map((article) => (
             <Card key={article.id} withBorder radius="md" p="lg" style={{ display: 'flex', flexDirection: 'column' }}>
               <Stack gap="md" style={{ flexGrow: 1 }}>
                 <Group justify="space-between" align="flex-start">
@@ -220,9 +260,19 @@ export default function ArticlesPage() {
                 <Alert icon={<IconSparkles size={16} />} title="Generare AI Ghidată">Tu alegi titlul și keywords-urile, AI-ul generează un articol optimizat.</Alert>
                 <Select required label="Website" placeholder="Alege un website" data={websiteOptions} searchable {...aiForm.getInputProps('websiteId')} />
                 <TextInput required label="Titlu Articol" placeholder="Ex: Ghid Complet SEO pentru Afaceri Mici" {...aiForm.getInputProps('title')} />
-                <MultiSelect required label="Keywords Țintă" placeholder="Adaugă keywords pentru optimizare" data={keywordOptions} searchable creatable {...aiForm.getInputProps('targetKeywords')} />
+                <MultiSelect required label="Keywords Țintă" placeholder="Adaugă keywords pentru optimizare" data={keywordOptions} searchable {...aiForm.getInputProps('targetKeywords')} />
                 <SimpleGrid cols={2}>
-                    <NumberInput label="Număr de cuvinte" min={500} max={5000} step={100} {...aiForm.getInputProps('articleLength')} />
+                    <Select
+                        label="Lungime articol"
+                        placeholder="Alege o lungime"
+                        data={[
+                            { value: '500', label: 'Scurt (~500 cuvinte)' },
+                            { value: '1000', label: 'Mediu (~1000 cuvinte)' },
+                            { value: '2000', label: 'Lung (~2000 cuvinte)' },
+                            { value: '3000', label: 'Foarte lung (~3000 cuvinte)' },
+                        ]}
+                        {...aiForm.getInputProps('articleLength')}
+                    />
                     <Select label="Tonul Articolului" data={['professional', 'casual', 'technical', 'conversational']} {...aiForm.getInputProps('tone')} />
                 </SimpleGrid>
                 <Group justify="flex-end" mt="md">
@@ -240,6 +290,17 @@ export default function ArticlesPage() {
                 <Select required label="Website" placeholder="Alege un website pentru analiză și generare" data={websiteOptions} searchable {...bulkForm.getInputProps('websiteId')} />
                 <NumberInput required label="Număr de articole de generat" min={1} max={20} {...bulkForm.getInputProps('numberOfArticles')} />
                 <SimpleGrid cols={2}>
+                    <Select
+                        label="Lungime articol"
+                        placeholder="Alege o lungime"
+                        data={[
+                            { value: '500', label: 'Scurt (~500 cuvinte)' },
+                            { value: '1000', label: 'Mediu (~1000 cuvinte)' },
+                            { value: '1500', label: 'Standard (~1500 cuvinte)' },
+                            { value: '2500', label: 'Lung (~2500 cuvinte)' },
+                        ]}
+                        {...bulkForm.getInputProps('articleLength')}
+                    />
                     <Select label="Limbă" data={['romanian', 'english']} {...bulkForm.getInputProps('language')} />
                     <Select label="Tonul Articolelor" data={['professional', 'casual', 'technical']} {...bulkForm.getInputProps('tone')} />
                 </SimpleGrid>

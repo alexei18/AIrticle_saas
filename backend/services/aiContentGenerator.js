@@ -101,9 +101,139 @@ class AIContentGenerator {
   }
 
   async generateArticle(options) {
-    const prompt = this.buildPrompt(options);
-    const content = await this.makeAIRequest(prompt, { maxTokens: Math.floor((options.wordCount || 2000) * 1.6) });
-    return this.processGeneratedContent(content, options);
+    const { targetKeywords, title, wordCount = 2000, tone, language, websiteDomain, siteAnalysis } = options;
+
+    // --- ETAPA 1: Cercetare și Planificare ---
+    console.log(`[AI Content Gen - Etapa 1] Starting research for article: "${title}"`);
+
+    const searchTool = {
+      function_declarations: [{
+        name: 'search_web',
+        description: 'Căutare pe web pentru a găsi informații recente, știri, statistici sau articole relevante despre un subiect.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            query: { type: 'STRING', description: 'Subiectul de căutat. Fii specific.' }
+          },
+          required: ['query']
+        }
+      }]
+    };
+
+    const researchPrompt = `
+      You are a world-class SEO Content Strategist and Researcher for the domain "${websiteDomain}".
+      Your task is to create a detailed, factual, and SEO-optimized plan for an article.
+
+      Article Title: "${title}"
+      Primary Keywords: "${targetKeywords.join(', ')}"
+      Language: ${language}
+
+      Instructions:
+      1.  **Analyze Intent:** Understand the user intent behind the keywords. Are they looking for information, a guide, a comparison?
+      2.  **Perform Research:** Use the 'search_web' tool to find the MOST RECENT and RELEVANT information. Look for:
+          - Recent news or developments (last 12 months).
+          - Key statistics and data points.
+          - Different perspectives or expert opinions.
+          - Common questions people ask about this topic.
+      3.  **Structure the Article:** Based on your research, create a comprehensive article outline. The outline should be a logical flow of ideas.
+      4.  **Flesh out the Outline:** For EACH section of the outline, provide:
+          - A clear, descriptive heading (H2, H3).
+          - 3-5 detailed bullet points summarizing the key information, statistics, or facts to be included in that section. These points will be the foundation for the writer.
+          - Mention the source URL for any specific data points or direct quotes.
+
+      Return ONLY a JSON object with the following structure:
+      {
+        "plannedTitle": "Your final SEO-optimized title",
+        "targetAudience": "A brief description of the ideal reader",
+        "userIntent": "The primary intent (e.g., informational, commercial, navigational)",
+        "articleOutline": [
+          {
+            "type": "intro",
+            "heading": "Introduction",
+            "points": [
+              "Hook the reader with a surprising statistic or question.",
+              "Briefly introduce the topic and its importance.",
+              "State what the reader will learn from the article."
+            ]
+          },
+          {
+            "type": "section",
+            "heading": "Your Researched H2 Heading",
+            "points": [
+              "Detailed point 1 based on research (Source: URL).",
+              "Detailed point 2 with a specific statistic.",
+              "Detailed point 3 explaining a key concept."
+            ]
+          },
+          {
+            "type": "section",
+            "heading": "Another H2 Heading",
+            "points": [
+              "..."
+            ]
+          },
+          {
+            "type": "conclusion",
+            "heading": "Conclusion",
+            "points": [
+              "Summarize the key takeaways from the article.",
+              "Provide a final thought or call to action.",
+              "Encourage comments or sharing."
+            ]
+          }
+        ]
+      }
+    `;
+
+    let articlePlan;
+    try {
+      articlePlan = await this.makeAIRequest(researchPrompt, {
+        isJson: true,
+        tools: searchTool,
+        temperature: 0.5,
+        maxTokens: 8192
+      });
+    } catch (error) {
+      console.error("[AI Content Gen - Etapa 1] Failed to generate article plan:", error.message);
+      throw new Error("Failed to generate the article research plan.");
+    }
+
+    if (!articlePlan || !articlePlan.articleOutline || articlePlan.articleOutline.length === 0) {
+      throw new Error("The generated article plan was empty or invalid.");
+    }
+
+    // --- ETAPA 2: Scrierea Articolului ---
+    console.log(`[AI Content Gen - Etapa 2] Writing article based on the generated plan.`);
+
+    const writingPrompt = `
+      You are a professional ${language} writer and SEO expert.
+      Your task is to write a high-quality, engaging, and comprehensive article based *strictly* on the provided plan.
+
+      **Article Plan:**
+      ${JSON.stringify(articlePlan, null, 2)}
+
+      **Writing Instructions:**
+      1.  **Follow the Plan:** Adhere strictly to the headings and points provided in the 'articleOutline'. Do not invent new sections or deviate from the provided facts.
+      2.  **Expand on Points:** Elaborate on each bullet point from the plan, transforming it into a full, well-written paragraph.
+      3.  **Tone and Style:** Write in a "${tone}" tone. The language must be fluent, natural, and professional ${language}.
+      4.  **SEO Best Practices:**
+          - Naturally integrate the primary keywords "${targetKeywords.join(', ')}" throughout the text, especially in headings and the introduction.
+          - Use proper HTML formatting: an H1 for the main title, and H2s/H3s for section headings as defined in the plan.
+          - Use paragraphs (<p>), bolding (<strong>) for emphasis, and unordered lists (<ul><li>) where appropriate.
+      5.  **Word Count:** The final article should be approximately ${wordCount} words.
+      6.  **Final Output:**
+          - The article should start directly with the <h1> title.
+          - At the very end of the article, add a meta description prefixed with "META DESCRIPTION:".
+
+      Do not include any introductory text like "Here is the article:". Start directly with the <h1> tag.
+    `;
+
+    const content = await this.makeAIRequest(writingPrompt, {
+      maxTokens: Math.floor(wordCount * 1.8), // Allow more tokens for generation
+      temperature: 0.7
+    });
+
+    return this.processGeneratedContent(content, { ...options, title: articlePlan.plannedTitle });
   }
 
 
@@ -118,7 +248,6 @@ class AIContentGenerator {
       You are a senior SEO strategist. Analyze the following aggregated summary of issues found across an entire website.
       - Total Pages Analyzed: ${analysisData.totalPages}
       - Average On-Page SEO Score: ${analysisData.avgOnPageScore}/100
-      - SEMrush Authority Score: ${analysisData.semrushScore || 'N/A'}/100
       - Aggregated Technical Issues: ${analysisData.technicalIssues.join(', ')}
       - Aggregated Content Issues: ${analysisData.contentIssues.join(', ')}
 
@@ -165,7 +294,13 @@ class AIContentGenerator {
 
     console.log(`[AI Bulk Gen] Generated ${topics.length} ideas. Now generating full articles...`);
 
-    const articlePromises = topics.map(topic => this.generateArticle({ ...options, title: topic.title, targetKeywords: topic.keywords, siteAnalysis }));
+    const articlePromises = topics.map(topic => this.generateArticle({
+      ...options,
+      title: topic.title,
+      targetKeywords: topic.keywords,
+      siteAnalysis,
+      articleLength: options.articleLength || 1500,
+    }));
     const settledArticles = await Promise.allSettled(articlePromises);
     
     const generatedArticles = [];

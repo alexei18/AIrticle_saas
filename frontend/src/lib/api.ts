@@ -3,7 +3,7 @@ import { Article, User, Website, Keyword, WebsiteAnalysis, CrawledPage } from '@
 
 // ... axiosInstance și interceptorii rămân neschimbați ...
 const axiosInstance = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api',
+  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api',
   withCredentials: true,
 });
 
@@ -124,6 +124,10 @@ export const websitesApi = {
   getCrawledPages: async (websiteId: number): Promise<{ pages: CrawledPage[] }> => {
     const response = await axiosInstance.get(`/analysis/${websiteId}/crawled-pages`);
     return response.data;
+  },
+  getBacklinks: async (websiteId: number): Promise<{ backlinks: Backlink[] }> => {
+    const response = await axiosInstance.get(`/websites/${websiteId}/backlinks`);
+    return response.data;
   }
 };
 
@@ -173,12 +177,16 @@ export const keywordsApi = {
     const response = await axiosInstance.get('/keywords');
     return response.data;
   },
-  create: async (data: Partial<Keyword>): Promise<{ keyword: Keyword }> => {
-    const response = await axiosInstance.post('/keywords', data);
+  getByWebsite: async (websiteId: number): Promise<{ keywords: Keyword[] }> => {
+    const response = await axiosInstance.get(`/keywords/website/${websiteId}`);
     return response.data;
   },
-  research: async (data: any): Promise<{ research: any }> => {
-    const response = await axiosInstance.post('/keywords/research', data);
+  update: async (id: number, data: Partial<Keyword>): Promise<{ keyword: Keyword }> => {
+    const response = await axiosInstance.put(`/keywords/${id}`, data);
+    return response.data;
+  },
+  create: async (data: Partial<Keyword>): Promise<{ keyword: Keyword }> => {
+    const response = await axiosInstance.post('/keywords', data);
     return response.data;
   },
   bulkImport: async (data: { websiteId: number; keywords: string[] }): Promise<{ imported: number, skipped: number }> => {
@@ -195,6 +203,10 @@ export const keywordsApi = {
   },
   delete: async (id: number): Promise<{ message: string }> => {
     const response = await axiosInstance.delete(`/keywords/${id}`);
+    return response.data;
+  },
+  calculateTrendScore: async (id: number): Promise<{ message: string; aiTrendScore: number; keyword: Keyword }> => {
+    const response = await axiosInstance.post(`/keywords/${id}/calculate-trend-score`);
     return response.data;
   }
 };

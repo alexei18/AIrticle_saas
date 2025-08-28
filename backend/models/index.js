@@ -34,7 +34,8 @@ const Keyword = sequelize.define('Keyword', {
   currentPosition: { type: DataTypes.INTEGER, field: 'current_position' },
   intentType: { type: DataTypes.ENUM('informational', 'commercial', 'transactional', 'navigational'), defaultValue: 'informational', field: 'intent_type' },
   isTracking: { type: DataTypes.BOOLEAN, defaultValue: true, field: 'is_tracking' },
-  enrichmentStatus: { type: DataTypes.ENUM('pending', 'completed', 'failed'), defaultValue: 'pending', field: 'enrichment_status' }
+  enrichmentStatus: { type: DataTypes.ENUM('pending', 'completed', 'failed'), defaultValue: 'pending', field: 'enrichment_status' },
+  aiTrendScore: { type: DataTypes.INTEGER, field: 'ai_trend_score' }
 }, { tableName: 'keywords', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
 const Article = sequelize.define('Article', {
@@ -59,7 +60,6 @@ const Analysis = sequelize.define('Analysis', {
   technicalReport: { type: DataTypes.JSON, field: 'technical_report' },
   contentReport: { type: DataTypes.JSON, field: 'content_report' },
   seoReport: { type: DataTypes.JSON, field: 'seo_report' },
-  semrushReport: { type: DataTypes.JSON, field: 'semrush_report' }, 
   recommendations: { type: DataTypes.JSON }
 }, { tableName: 'analyses', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
@@ -200,6 +200,13 @@ const ContentGap = sequelize.define('ContentGap', {
     opportunityScore: { type: DataTypes.INTEGER, field: 'opportunity_score' },
 }, { tableName: 'content_gaps', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
+const KeywordTrend = sequelize.define('KeywordTrend', {
+  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+  keywordId: { type: DataTypes.INTEGER, allowNull: false, field: 'keyword_id' },
+  date: { type: DataTypes.DATEONLY, allowNull: false },
+  interestScore: { type: DataTypes.INTEGER, allowNull: false, field: 'interest_score' },
+}, { tableName: 'keyword_trends', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+
 User.hasMany(Website, { foreignKey: 'userId', as: 'websites', onDelete: 'CASCADE' });
 Website.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
@@ -223,6 +230,9 @@ Activity.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
 Keyword.hasMany(KeywordPosition, { foreignKey: 'keywordId', as: 'positions', onDelete: 'CASCADE' });
 KeywordPosition.belongsTo(Keyword, { foreignKey: 'keywordId', as: 'keyword' });
+
+Keyword.hasMany(KeywordTrend, { foreignKey: 'keywordId', as: 'trends', onDelete: 'CASCADE' });
+KeywordTrend.belongsTo(Keyword, { foreignKey: 'keywordId', as: 'keyword' });
 
 User.hasOne(UserProfile, { foreignKey: 'userId', as: 'profile', onDelete: 'CASCADE' });
 UserProfile.belongsTo(User, { foreignKey: 'userId', as: 'user' });
@@ -252,6 +262,6 @@ module.exports = {
   sequelize, User, Website, Keyword, Article, Analysis, CrawledPage,
   Activity, KeywordPosition, UserProfile, NotificationSettings, PricingPlan, TrafficAnalytics,
   GoogleAnalyticsConnection, GoogleAnalyticsData,
-  SerpSnapshot, Backlink, ContentGap,
+  SerpSnapshot, Backlink, ContentGap, KeywordTrend,
   Op // NOU: Exportăm Op pentru a fi disponibil
 };

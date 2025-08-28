@@ -1,6 +1,6 @@
 const express = require('express');
 const Joi = require('joi');
-const { Keyword, Website, CrawledPage, Op } = require('../models'); // Asigură-te că Op este importat
+const { Keyword, Website, CrawledPage, Op } = require('../models');
 const { authenticateToken } = require('../middleware/auth');
 const KeywordResearcher = require('../services/keywordResearch');
 const AIProviderManager = require('../services/aiProviders');
@@ -8,14 +8,6 @@ const KeywordService = require('../services/keywordService');
 
 const router = express.Router();
 router.use(authenticateToken);
-
-const researchSchema = Joi.object({
-  websiteId: Joi.number().integer().positive().optional(),
-  seedKeyword: Joi.string().min(2).max(100).optional(),
-  language: Joi.string().valid('ro', 'en').default('ro'),
-  maxSuggestions: Joi.number().integer().min(5).max(100).default(10), // Ajustat min
-  aiProvider: Joi.string().optional().allow(''),
-}).or('websiteId', 'seedKeyword');
 
 const keywordSchema = Joi.object({
   websiteId: Joi.number().integer().positive().required(),
@@ -32,41 +24,6 @@ router.get('/ai-status', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: 'Failed to check AI provider status' });
     }
-});
-
-router.post('/research', async (req, res) => {
-  try {
-    const { error, value } = researchSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
-
-    const { websiteId, seedKeyword, language, maxSuggestions } = value;
-    let textToAnalyze = seedKeyword;
-    let domain = null;
-    let websiteName = seedKeyword;
-
-    if (websiteId) {
-        const website = await Website.findOne({ where: { id: websiteId, userId: req.user.id } });
-        if (!website) return res.status(404).json({ error: "Website not found." });
-        
-        domain = website.domain;
-        websiteName = website.name;
-
-        const pages = await CrawledPage.findAll({ where: { websiteId }, attributes: ['title', 'content'], limit: 20 });
-        if (pages.length === 0) {
-          return res.status(400).json({ error: 'No crawled data found. Please run an analysis first.' });
-        }
-        textToAnalyze = pages.map(p => `${p.title} ${p.content}`).join(' ');
-    }
-
-    const researcher = new KeywordResearcher();
-    const researchResults = await researcher.researchKeywords(textToAnalyze, {
-      language, maxSuggestions, domain, originalSeed: `Research for ${websiteName}`
-    });
-
-    res.json({ message: 'Keyword research completed successfully', research: researchResults });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to complete keyword research', details: error.message });
-  }
 });
 
 router.post('/auto-research', async (req, res) => {
@@ -139,6 +96,22 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/website/:websiteId', async (req, res) => {
+  try {
+    const { websiteId } = req.params;
+    const website = await Website.findOne({ where: { id: websiteId, userId: req.user.id } });
+    if (!website) return res.status(404).json({ error: 'Website not found' });
+
+    const keywords = await Keyword.findAll({
+      where: { websiteId },
+      order: [['created_at', 'DESC']]
+    });
+    res.json({ keywords });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch keywords for website' });
+  }
+});
+
 router.post('/', async (req, res) => {
   try {
     const { error, value } = keywordSchema.validate(req.body);
@@ -187,7 +160,8 @@ router.post('/bulk-import', async (req, res) => {
     const keywordObjects = newKeywordsToCreate.map(keyword => ({ websiteId, keyword, enrichmentStatus: 'pending' }));
     const createdKeywords = await Keyword.bulkCreate(keywordObjects, { returning: true });
 
-    KeywordService.enrichKeywords(createdKeywords);
+    // This should probably be enrichKeyword and loop through
+    // KeywordService.enrichKeywords(createdKeywords);
 
     res.status(201).json({
       message: `Successfully imported ${newKeywordsToCreate.length} new keywords. Data enrichment is in progress.`,
@@ -220,24 +194,42 @@ router.put('/:id', async (req, res) => {
 });
   
 router.delete('/:id', async (req, res) => {
-    try {
-      const keyword = await Keyword.findOne({
-        where: { id: req.params.id },
-        // Ne asigurăm că user-ul deține keyword-ul prin asocierea cu Website
-        include: [{ model: Website, as: 'website', where: { userId: req.user.id }, attributes: [] }]
-      });
-
-      if (!keyword) {
-        return res.status(404).json({ error: 'Keyword not found or you do not have permission to delete it.' });
-      }
-  
-      await keyword.destroy();
-      res.json({ message: 'Keyword deleted successfully.' });
-    } catch (error) {
-      console.error('Delete keyword error:', error);
-      res.status(500).json({ error: 'Failed to delete keyword' });
+  try {
+    const keyword = await Keyword.findOne({ 
+      where: { id: req.params.id },
+      include: [{ model: Website, as: 'website', where: { userId: req.user.id } }]
+    });
+    if (!keyword) {
+      return res.status(404).json({ message: 'Keyword not found' });
     }
+    await keyword.destroy();
+    res.json({ message: 'Keyword deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to delete keyword', error: error.message });
+  }
 });
 
+// NOU: Rută pentru a calcula scorul AI Trend
+router.post('/:id/calculate-trend-score', async (req, res) => {
+  try {
+    const keyword = await Keyword.findOne({ 
+      where: { id: req.params.id },
+      include: [{ model: Website, as: 'website', where: { userId: req.user.id } }]
+    });
+    if (!keyword) {
+      return res.status(404).json({ message: 'Keyword not found' });
+    }
+
+    const score = await KeywordService.calculateAiTrendScore(keyword);
+
+    if (score !== null) {
+      res.json({ message: 'AI Trend Score calculated successfully.', aiTrendScore: score, keyword });
+    } else {
+      res.status(200).json({ message: 'Could not calculate AI Trend Score due to insufficient trend data.', aiTrendScore: null, keyword });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to calculate score', error: error.message });
+  }
+});
 
 module.exports = router;

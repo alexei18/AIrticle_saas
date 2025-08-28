@@ -30,7 +30,7 @@ export default function IntegrationsPage() {
         try {
             const [websitesRes, statusRes] = await Promise.all([
                 websitesApi.getAll(),
-                googleAnalyticsApi.getStatus(0) // Status la nivel de user, websiteId e ignorat
+                googleAnalyticsApi.getStatus() // Status la nivel de user, websiteId e ignorat
             ]);
 
             setWebsites(websitesRes.websites || []);
@@ -44,7 +44,7 @@ export default function IntegrationsPage() {
             setMappings(initialMappings);
 
             if (statusRes.connected) {
-                const propsRes = await googleAnalyticsApi.getProperties(0); // 0 = pt user
+                const propsRes = await googleAnalyticsApi.getProperties(); // 0 = pt user
                 setGaProperties(propsRes.properties || []);
                 autoMatchProperties(websitesRes.websites, propsRes.properties, initialMappings);
             }
@@ -82,7 +82,7 @@ export default function IntegrationsPage() {
     const handleConnect = async () => {
         setLoading(true);
         try {
-            const res = await googleAnalyticsApi.connect(0); // 0 = pt user
+            const res = await googleAnalyticsApi.connect(); // 0 = pt user
             window.location.href = res.authUrl;
         } catch (error) {
             notifications.show({ title: 'Eroare', message: 'Nu s-a putut iniția conexiunea.', color: 'red' });

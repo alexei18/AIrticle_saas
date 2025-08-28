@@ -1,11 +1,6 @@
 const cheerio = require('cheerio');
-const SEMrushService = require('./semrushService');
 
 class WebsiteAnalyzer {
-  constructor() {
-    this.semrushService = new SEMrushService();
-  }
-
   async analyzePage(url, browser) {
     let page = null;
     try {
@@ -18,7 +13,6 @@ class WebsiteAnalyzer {
 
     } catch (error) {
       console.warn(`[Analyzer] Quantitative analysis failed for ${url}: ${error.message}`);
-      // MODIFICAT: Returnăm un obiect cu eroare, dar cu structură consistentă
       return { 
           error: `Analysis failed: ${error.code || error.message}`,
           quantitativeScore: 0,
@@ -39,16 +33,11 @@ class WebsiteAnalyzer {
     const issues = [];
     const suggestions = [];
 
-    // Verificare Sitemap.xml (adăugată)
-    // Nota: Această verificare este simplistă și presupune că sitemap-ul este la rădăcină.
-    // O implementare mai robustă ar căuta link-ul în robots.txt.
-    // Pentru moment, vom sugera doar existența lui.
     suggestions.push("Verifică dacă există un fișier sitemap.xml la rădăcina domeniului pentru a ajuta motoarele de căutare să descopere toate paginile.");
 
-    // Verificare Schema.org (adăugată)
     const schemaScripts = $('script[type="application/ld+json"]');
     if (schemaScripts.length === 0) {
-      quantitativeScore -= 10;
+      quantitativeScore -= 5;
       issues.push("Conținut: Nu s-au găsit date structurate Schema.org (JSON-LD).");
       suggestions.push("Adaugă date structurate (Schema.org) pentru a oferi context motoarelor de căutare despre conținutul paginii.");
     } else {
@@ -66,19 +55,19 @@ class WebsiteAnalyzer {
     else if (metaDesc.length < 70) { quantitativeScore -= 5; issues.push("Tehnic: Meta descrierea este prea scurtă (< 70 caractere)."); }
 
     const h1s = $('h1');
-    if (h1s.length === 0) { quantitativeScore -= 15; issues.push("Critic: Lipsește eticheta H1."); }
-    if (h1s.length > 1) { quantitativeScore -= 10; issues.push(`Tehnic: S-au găsit ${h1s.length} etichete H1 (recomandat este 1).`); }
+    if (h1s.length === 0) { quantitativeScore -= 10; issues.push("Critic: Lipsește eticheta H1."); }
+    if (h1s.length > 1) { quantitativeScore -= 5; issues.push(`Tehnic: S-au găsit ${h1s.length} etichete H1 (recomandat este 1).`); }
 
     const images = $('img');
     const imagesWithoutAlt = images.filter((i, img) => !$(img).attr('alt')?.trim()).length;
     if (images.length > 0 && imagesWithoutAlt > 0) {
-      quantitativeScore -= Math.min(10, imagesWithoutAlt * 2);
+      quantitativeScore -= Math.min(5, imagesWithoutAlt * 1);
       issues.push(`Conținut: ${imagesWithoutAlt} din ${images.length} imagini nu au atribut 'alt' descriptiv.`);
     }
 
     const textContent = $('body').text();
     const wordCount = textContent.trim().split(/\s+/).length;
-    if (wordCount < 300) { quantitativeScore -= 15; issues.push(`Conținut: Conținutul este subțire (${wordCount} cuvinte).`); }
+    if (wordCount < 300) { quantitativeScore -= 10; issues.push(`Conținut: Conținutul este subțire (${wordCount} cuvinte).`); }
 
     return {
       title,
@@ -87,33 +76,9 @@ class WebsiteAnalyzer {
       wordCount,
       contentSample: textContent.replace(/\s\s+/g, ' ').trim().substring(0, 4000),
       issues,
-      suggestions, // Adăugat
+      suggestions,
       quantitativeScore: Math.max(0, quantitativeScore)
     };
-  }
-
-  async analyzeDomain(domain, language = 'ro') {
-    console.log(`[Analyzer] 📈 Starting domain-level analysis for: ${domain}`);
-    try {
-      const semrushAnalysis = await this.semrushService.getDomainAnalysis(domain, language);
-      
-      if (!semrushAnalysis) {
-        console.warn(`[Analyzer] ⚠️ SEMrush analysis failed or returned no data for ${domain}. Continuing without it.`);
-        return { 
-          score: 0, data: null,
-          error: "Could not retrieve domain data from SEMrush. Check API key and credits.",
-          recommendations: [] 
-        };
-      }
-      
-      const score = this.semrushService.calculateSEOScore(semrushAnalysis);
-      const recommendations = this.semrushService.generateRecommendations(semrushAnalysis);
-      console.log(`[Analyzer] ✅ Finished domain-level analysis for ${domain}. Score: ${score}`);
-      return { score, data: semrushAnalysis, recommendations };
-    } catch (error) {
-      console.error(`[Analyzer] ❌ Domain analysis failed for ${domain}: ${error.message}`);
-      return { score: 0, data: null, error: error.message, recommendations: [] };
-    }
   }
 }
 
