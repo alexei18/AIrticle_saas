@@ -295,7 +295,7 @@ export default function WebsiteDetailsPage() {
             <Text c="dimmed" mb="lg">Vezi problemele și recomandările AI pentru fiecare pagină. Paginile cu cele mai multe probleme sunt afișate primele.</Text>
             {isAnalyzing ? <Center p="xl"><Loader /><Text ml="md">Se analizează paginile...</Text></Center> :
               crawledPages.length > 0 ? (
-                <Accordion variant="separated" chevronPosition="left">
+                <Accordion chevronPosition="left">
                   {crawledPages.map((page: CrawledPage) => (
                     <Accordion.Item key={page.id} value={String(page.id)}>
                       <Accordion.Control>

@@ -1,0 +1,8 @@
+{
+  "showMemoryUsage": true,
+  "maxSessionTurns": -1,
+  "memoryDiscoveryMaxDirs": 500,
+  "loadMemoryFromIncludeDirectories": true,
+  "folderTrustFeature": true,
+  "folderTrust": true
+}

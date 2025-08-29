@@ -2,6 +2,7 @@ const { URL } = require('url');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const axios = require('axios'); // Adăugat
+const { normalizeUrl } = require('../utils/urlUtils');
 puppeteer.use(StealthPlugin());
 
 class RecursiveCrawler {
@@ -84,10 +85,11 @@ class RecursiveCrawler {
 
         // MODIFICAT: Declarăm patternCounts aici pentru a fi în scope-ul corect
         const patternCounts = new Map();
+        const normalizedStartUrl = normalizeUrl(startUrl);
 
         try {
-            const queue = [startUrl]; // MODIFICAT: Coada conține doar URL-uri
-            const crawledUrls = new Set([startUrl]);
+            const queue = [normalizedStartUrl]; // MODIFICAT: Coada conține doar URL-uri
+            const crawledUrls = new Set([normalizedStartUrl]);
             const allProcessedPages = [];
 
             // Verificare robots.txt (adăugat)
@@ -148,11 +150,21 @@ class RecursiveCrawler {
                     const newLinks = pageData.internalLinks || [];
                     const nextLinks = [];
                     newLinks.forEach(link => {
-                        if (this.isValidUrl(link) && !crawledUrls.has(link)) {
-                            crawledUrls.add(link);
-                            nextLinks.push(link);
-                        } else if (!this.isValidUrl(link)) {
-                            console.warn(`[Crawler] 🚫 Invalid URL found and skipped: ${link}`);
+                        const normalizedLink = normalizeUrl(link);
+                        if (this.isValidUrl(normalizedLink) && !crawledUrls.has(normalizedLink)) {
+                            // Filtrare suplimentară: dacă extractor-ul detectează limba, skipează URL-urile fără limbă
+                            if (this.extractor.languageDetector && this.extractor.languageDetector.siteLanguagePattern) {
+                                const hasLanguage = this.extractor.languageDetector.detectLanguageInUrl(normalizedLink);
+                                if (!hasLanguage) {
+                                    console.log(`[Crawler] 🚫 Skipping URL without language: ${normalizedLink} (site uses: ${this.extractor.languageDetector.siteLanguagePattern})`);
+                                    return;
+                                }
+                            }
+                            
+                            crawledUrls.add(normalizedLink);
+                            nextLinks.push(normalizedLink);
+                        } else if (!this.isValidUrl(normalizedLink)) {
+                            console.warn(`[Crawler] 🚫 Invalid URL found and skipped: ${normalizedLink}`);
                         }
                     });
                     return nextLinks;

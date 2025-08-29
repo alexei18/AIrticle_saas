@@ -144,3 +144,24 @@ Pentru probleme de setup sau întrebări:
 ---
 
 **🎉 Platformă gata de lansare cu toate funcționalitățile implementate!**
+
+
+
+
+Acum toate paginile care au scorul 42 si sunt multe au eroare 404 daca
+  oricum se extrage continutul de pe ea. Erroarea este din cauza ca la noi
+  analiza nu alege o liba pentru intreg websiteul ar trebui linkurile sa fie       
+  asa https://www.bravin.io/ro/about nu https://www.bravin.io/about websiteul      
+  e configurat astfel in cit url sa contina limba, eu vreau ca la analiza
+  paginilor sa se aleaga o limba si sa ramina consisten nu sa excluda limba        
+  din website complet spre exemplu nu vreau sa se intimple asta ca sa anlizeze     
+    https://www.bravin.io/ru/about , https://www.bravin.io/ro/about si
+  https://www.bravin.io/en/about nu are rost dar daca se vede ca structura
+  url-ului este cu /ro, ru, sau /en sau orice alta limba sa se alaeaga una si      
+  sa se mearga cu ea inainte fara a exclude complet limba din url la multe
+  websiteurii aceasta e necesara in url astfel nu merge. Facem asa daca se
+  cauata url fara limba si este eroare 404 la citeva paginii se reanalizeaza       
+  siteul cu limba deja in url. Pentru a acoperii ambele cazurii cind este
+  necesar limba in url si cind nu e. Acum scrie totul ce trebuie sa faci in        
+  history.md si dupa completarea fiecarui punct trecel ca terminat. Pentru a       
+  avea un istoric in caz de inrerupere si repornire pentru a nu pierde datele.    

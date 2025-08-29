@@ -1,28 +1,46 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { URL } = require('url');
+const { normalizeUrl } = require('../utils/urlUtils');
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const WebsiteAnalyzer = require('./websiteAnalyzer');
+const LanguageDetector = require('./languageDetector');
+const UrlFallbackHandler = require('./urlFallbackHandler');
 
 class PageExtractor {
     constructor() {
+        this.languageDetector = new LanguageDetector();
+        this.fallbackHandler = new UrlFallbackHandler(this.languageDetector);
         this.analyzer = new WebsiteAnalyzer();
+        // Sincronizăm LanguageDetector-ul între analyzer și extractor
+        this.analyzer.languageDetector = this.languageDetector;
+        
         this.timeout = 45000;
+        this.siteAnalyzed = false; // Track if we analyzed the site structure
         this.axiosInstance = axios.create({
             timeout: 15000,
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36' }
         });
     }
 
+    // Reset for new site analysis
+    resetForNewSite() {
+        this.siteAnalyzed = false;
+        this.languageDetector.reset();
+        this.analyzer.resetForNewSite();
+        console.log('[PageExtractor] Reset for new site analysis');
+    }
+
     async extract(url, browser, isSimilarPage = false) {
-        const baseDomain = new URL(url).hostname.replace(/^www\./, '');
+        const normalizedUrl = normalizeUrl(url);
+        const baseDomain = new URL(normalizedUrl).hostname.replace(/^www\./, '');
         let internalLinks = new Set();
 
         // Enhanced static extraction with redirect handling
         try {
-            const response = await this.axiosInstance.get(url, {
+            const response = await this.axiosInstance.get(normalizedUrl, {
                 maxRedirects: 5,
                 validateStatus: function (status) {
                     return status >= 200 && status < 400; // Accept redirects
@@ -35,10 +53,22 @@ class PageExtractor {
                 const href = $(el).attr('href');
                 if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
                 try {
-                    const absoluteUrl = new URL(href, response.request.res.responseUrl || url);
+                    const absoluteUrl = new URL(href, response.request.res.responseUrl || normalizedUrl);
                     if (['http:', 'https:'].includes(absoluteUrl.protocol)) {
-                        const cleanUrl = (absoluteUrl.href).split('#')[0];
+                        const cleanUrl = normalizeUrl(absoluteUrl.href);
                         if (new URL(cleanUrl).hostname.replace(/^www\./, '').endsWith(baseDomain)) {
+                            
+                            // Dacă am detectat că site-ul folosește limba, filtrează URL-urile fără limbă
+                            if (this.languageDetector.siteLanguagePattern) {
+                                const hasLanguage = this.languageDetector.detectLanguageInUrl(cleanUrl);
+                                // Allow root URLs (e.g., https://domain.com) even if they don't have a language code
+                                const isRootUrl = new URL(cleanUrl).pathname === '/';
+                                if (!hasLanguage && !isRootUrl) {
+                                    console.log(`[PageExtractor] 🚫 Filtering URL without language: ${cleanUrl} (site uses: ${this.languageDetector.siteLanguagePattern})`);
+                                    return; // Skip URLs without language when site uses language
+                                }
+                            }
+                            
                             internalLinks.add(cleanUrl);
                         }
                     }
@@ -49,15 +79,29 @@ class PageExtractor {
             console.warn(`[PageExtractor] ⚠️ Static extraction failed for ${url}: ${axiosError.message}. Proceeding with dynamic only.`);
         }
 
-        // If no links found, add common paths as fallback
+        // If no links found, add intelligent common paths as fallback
         if (internalLinks.size === 0) {
-            const commonPaths = ['/about', '/contact', '/services', '/products', '/blog', '/news', '/pricing', '/features', '/support', '/help', '/faq', '/en', '/ro'];
-            const urlObj = new URL(url);
-            commonPaths.forEach(path => {
-                const potentialUrl = `${urlObj.protocol}//${urlObj.hostname}${path}`;
-                internalLinks.add(potentialUrl);
+            console.log(`[PageExtractor] 🔗 No links found, generating intelligent fallback paths`);
+            
+            // Analyze site structure if not already done
+            if (!this.siteAnalyzed) {
+                await this.fallbackHandler.analyzeSiteStructure([url]);
+                this.siteAnalyzed = true;
+            }
+            
+            // Generate intelligent common paths based on detected language pattern
+            const intelligentPaths = this.fallbackHandler.generateIntelligentCommonPaths(url);
+            
+            // Test which URLs actually work
+            const commonPathsArray = ['about', 'contact', 'services', 'products', 'blog', 'news', 'pricing', 'features', 'support', 'help', 'faq'];
+            const workingUrls = await this.fallbackHandler.filterWorkingUrls(url, commonPathsArray);
+            
+            // Add working URLs to internal links
+            workingUrls.forEach(workingUrl => {
+                internalLinks.add(workingUrl);
             });
-            console.log(`[PageExtractor] 🔗 Added ${commonPaths.length} common paths as fallback links`);
+            
+            console.log(`[PageExtractor] 🔗 Added ${workingUrls.length} verified working fallback links`);
         }
 
         let page = null;
@@ -85,26 +129,26 @@ class PageExtractor {
             // Enhanced page navigation with multiple strategies
             let navigationSuccess = false;
             const strategies = [
-                { waitUntil: 'networkidle2', timeout: this.timeout },
+                { waitUntil: 'networkidle0', timeout: this.timeout },
                 { waitUntil: 'domcontentloaded', timeout: this.timeout },
-                { waitUntil: 'load', timeout: 30000 }
             ];
 
             for (let strategy of strategies) {
                 try {
-                    const response = await page.goto(url, strategy);
-                    finalUrl = page.url(); // Get final URL after redirects
+                    await page.goto(normalizedUrl, strategy);
+                    const finalUrlAfterRedirect = page.url();
+                    finalUrl = normalizeUrl(finalUrlAfterRedirect); // Normalize final URL
                     navigationSuccess = true;
-                    console.log(`[PageExtractor] ✅ Navigation successful with strategy: ${strategy.waitUntil}`);
+                    console.log(`[PageExtractor] ✅ Navigation successful for ${finalUrl} with strategy: ${strategy.waitUntil}`);
                     break;
                 } catch (navError) {
-                    console.warn(`[PageExtractor] ⚠️ Navigation failed with ${strategy.waitUntil}: ${navError.message}`);
+                    console.warn(`[PageExtractor] ⚠️ Navigation failed for ${normalizedUrl} with ${strategy.waitUntil}: ${navError.message}`);
                     continue;
                 }
             }
 
             if (!navigationSuccess) {
-                throw new Error('All navigation strategies failed');
+                throw new Error(`All navigation strategies failed for ${normalizedUrl}`);
             }
 
             // Enhanced wait strategies for JavaScript-heavy sites
@@ -114,11 +158,23 @@ class PageExtractor {
             
             // Handle client-side errors but still try to extract content
             if (bodyHtml.includes('Application error: a client-side exception has occurred') || clientSideError) {
-                console.warn(`[PageExtractor] 🟡 Client-side error detected on ${url}, attempting partial extraction.`);
+                console.warn(`[PageExtractor] 🟡 Client-side error detected on ${finalUrl}, attempting partial extraction.`);
                 
                 // Try to extract what we can despite errors
                 const partialData = await this.extractPartialContent(page, finalUrl, internalLinks, clientSideError);
                 if (partialData) {
+                    // Attempt to run analysis on partial content if we have enough
+                    if (partialData.content && partialData.content.length > 100) {
+                        try {
+                            const $ = cheerio.load(partialData.content);
+                            const analysis = this.analyzer.collectQuantitativeData($, finalUrl);
+                            partialData = { ...partialData, ...analysis };
+                            console.log(`[PageExtractor] ✅ Enhanced partial extraction with analysis: score ${analysis.quantitativeScore}`);
+                        } catch (analysisError) {
+                            console.warn(`[PageExtractor] Partial content analysis failed: ${analysisError.message}`);
+                        }
+                    }
+                    
                     console.log(`[PageExtractor] ✅ Partial extraction successful: ${partialData.content?.length || 0} chars, ${partialData.internalLinks?.length || 0} links`);
                     return partialData;
                 } else {
@@ -130,12 +186,28 @@ class PageExtractor {
                     title: 'Client-Side Error',
                     error: clientSideError || 'Next.js client-side exception',
                     errorType: 'CLIENT_ERROR',
-                    internalLinks: Array.from(internalLinks),
+                    internalLinks: Array.from(internalLinks).map(normalizeUrl),
                 };
             }
 
             const $ = cheerio.load(bodyHtml);
-            const pageAnalysis = this.analyzer.collectQuantitativeData($, url);
+            
+            // Try using the analyzer's analyzePage method first for complete analysis
+            let pageAnalysis;
+            try {
+                const analyzeResult = await this.analyzer.analyzePage(finalUrl, browser);
+                if (analyzeResult && !analyzeResult.error) {
+                    pageAnalysis = analyzeResult;
+                    console.log(`[PageExtractor] Complete analysis successful for ${finalUrl}: score ${analyzeResult.quantitativeScore}`);
+                } else {
+                    // Fallback to direct analysis
+                    pageAnalysis = this.analyzer.collectQuantitativeData($, finalUrl);
+                    console.log(`[PageExtractor] Using direct analysis for ${finalUrl}: score ${pageAnalysis.quantitativeScore}`);
+                }
+            } catch (analyzeError) {
+                console.warn(`[PageExtractor] Analyzer failed, using fallback: ${analyzeError.message}`);
+                pageAnalysis = this.analyzer.collectQuantitativeData($, finalUrl);
+            }
 
             $('body').find('script, style, nav, footer, header, aside, form, noscript').remove();
             const content = $('body').text().replace(/\s\s+/g, ' ').trim().substring(0, 8000); // Reduced from 15000
@@ -152,6 +224,10 @@ class PageExtractor {
                 }
             });
 
+            // Extract and normalize all links from the page
+            const dynamicLinks = await this.extractLinksFromPage(page, finalUrl);
+            dynamicLinks.forEach(link => internalLinks.add(link));
+
             return {
                 url: finalUrl,
                 ...pageAnalysis,
@@ -160,24 +236,24 @@ class PageExtractor {
                 content,
             };
         } catch (puppeteerError) {
-            console.error(`[PageExtractor] ❌ Dynamic extraction failed for ${url}: ${puppeteerError.message}`);
+            console.error(`[PageExtractor] ❌ Dynamic extraction failed for ${normalizedUrl}: ${puppeteerError.message}`);
             
             // Enhanced fallback - try to extract from static content if available
             if (internalLinks.size > 0) {
-                const fallbackData = await this.tryFallbackExtraction(url, internalLinks);
+                const fallbackData = await this.tryFallbackExtraction(normalizedUrl, internalLinks);
                 if (fallbackData) {
                     return fallbackData;
                 }
                 
                 return {
-                    url: finalUrl || url,
+                    url: finalUrl || normalizedUrl,
                     title: 'Dynamic Extraction Failed',
                     error: puppeteerError.message,
                     errorType: 'CONNECTION_ERROR',
-                    internalLinks: Array.from(internalLinks),
+                    internalLinks: Array.from(internalLinks).map(normalizeUrl),
                 };
             }
-            return { url: finalUrl || url, error: puppeteerError.message, errorType: 'CONNECTION_ERROR' };
+            return { url: finalUrl || normalizedUrl, error: puppeteerError.message, errorType: 'CONNECTION_ERROR' };
         } finally {
             if (page) await page.close();
         }
@@ -217,6 +293,7 @@ class PageExtractor {
     async extractPartialContent(page, url, internalLinks, error) {
         try {
             const title = await page.title().catch(() => 'Partial Extraction');
+            const normalizedUrl = normalizeUrl(url);
             
             // Try to get any visible text
             const content = await page.evaluate(() => {
@@ -231,17 +308,17 @@ class PageExtractor {
             }).catch(() => '');
 
             // Try to extract additional links from the current page with multiple methods
-            const dynamicLinks = await this.extractLinksFromPage(page, url).catch(() => []);
+            const dynamicLinks = await this.extractLinksFromPage(page, normalizedUrl).catch(() => []);
             dynamicLinks.forEach(link => internalLinks.add(link));
 
             if (title !== 'Partial Extraction' || content.length > 100 || dynamicLinks.length > 0) {
                 return {
-                    url,
+                    url: normalizedUrl,
                     title,
                     content,
                     error: `Partial extraction due to: ${error}`,
                     errorType: 'PARTIAL_SUCCESS',
-                    internalLinks: Array.from(internalLinks),
+                    internalLinks: Array.from(internalLinks).map(normalizeUrl),
                     wordCount: content.split(/\s+/).length,
                     headings: []
                 };
@@ -253,9 +330,10 @@ class PageExtractor {
     }
 
     async tryFallbackExtraction(url, internalLinks) {
+        const normalizedUrl = normalizeUrl(url);
         try {
             // Try one more time with a different approach
-            const response = await this.axiosInstance.get(url, {
+            const response = await this.axiosInstance.get(normalizedUrl, {
                 maxRedirects: 10,
                 timeout: 30000,
                 headers: {
@@ -269,15 +347,28 @@ class PageExtractor {
             const content = $('body').text().replace(/\s\s+/g, ' ').trim().substring(0, 2000); // Reduced for fallback
 
             if (content.length > 100) {
-                return {
-                    url,
+                // Try to run complete analysis on fallback content
+                let analysis = {
                     title,
                     content,
-                    error: 'Extracted via fallback method',
-                    errorType: 'FALLBACK_SUCCESS',
-                    internalLinks: Array.from(internalLinks),
                     wordCount: content.split(/\s+/).length,
                     headings: []
+                };
+                
+                try {
+                    const completeAnalysis = this.analyzer.collectQuantitativeData($, normalizedUrl);
+                    analysis = { ...analysis, ...completeAnalysis };
+                    console.log(`[PageExtractor] ✅ Fallback extraction with complete analysis: score ${completeAnalysis.quantitativeScore}`);
+                } catch (analysisError) {
+                    console.warn(`[PageExtractor] Fallback analysis failed: ${analysisError.message}`);
+                }
+                
+                return {
+                    url: normalizedUrl,
+                    ...analysis,
+                    error: 'Extracted via fallback method',
+                    errorType: 'FALLBACK_SUCCESS',
+                    internalLinks: Array.from(internalLinks).map(normalizeUrl)
                 };
             }
         } catch (fallbackError) {
@@ -288,7 +379,8 @@ class PageExtractor {
 
     // Enhanced link extraction with multiple strategies
     async extractLinksFromPage(page, baseUrl) {
-        const baseDomain = new URL(baseUrl).hostname.replace(/^www\./, '');
+        const normalizedBaseUrl = normalizeUrl(baseUrl);
+        const baseDomain = new URL(normalizedBaseUrl).hostname.replace(/^www\./, '');
         const allLinks = new Set();
 
         // Strategy 1: Standard DOM query
@@ -301,13 +393,13 @@ class PageExtractor {
                         if (!href) return;
                         const absoluteUrl = new URL(href, window.location.href);
                         if (absoluteUrl.hostname.replace(/^www\./, '').endsWith(domain)) {
-                            links.push(absoluteUrl.href.split('#')[0]);
+                            links.push(absoluteUrl.href);
                         }
                     } catch (e) {}
                 });
                 return [...new Set(links)];
             }, baseDomain);
-            domLinks.forEach(link => allLinks.add(link));
+            domLinks.forEach(link => allLinks.add(normalizeUrl(link)));
         } catch (e) {
             console.warn(`[PageExtractor] DOM link extraction failed: ${e.message}`);
         }
@@ -324,14 +416,14 @@ class PageExtractor {
                             if (!href) return;
                             const absoluteUrl = new URL(href, window.location.href);
                             if (absoluteUrl.hostname.replace(/^www\./, '').endsWith(domain)) {
-                                links.push(absoluteUrl.href.split('#')[0]);
+                                links.push(absoluteUrl.href);
                             }
                         } catch (e) {}
                     });
                 });
                 return [...new Set(links)];
             }, baseDomain);
-            navLinks.forEach(link => allLinks.add(link));
+            navLinks.forEach(link => allLinks.add(normalizeUrl(link)));
         } catch (e) {
             console.warn(`[PageExtractor] Navigation link extraction failed: ${e.message}`);
         }
@@ -347,13 +439,13 @@ class PageExtractor {
                         if (!href) return;
                         const absoluteUrl = new URL(href, window.location.href);
                         if (absoluteUrl.hostname.replace(/^www\./, '').endsWith(domain)) {
-                            links.push(absoluteUrl.href.split('#')[0]);
+                            links.push(absoluteUrl.href);
                         }
                     } catch (e) {}
                 });
                 return [...new Set(links)];
             }, baseDomain);
-            delayedLinks.forEach(link => allLinks.add(link));
+            delayedLinks.forEach(link => allLinks.add(normalizeUrl(link)));
         } catch (e) {
             console.warn(`[PageExtractor] Delayed link extraction failed: ${e.message}`);
         }
@@ -361,10 +453,10 @@ class PageExtractor {
         // Strategy 4: Common website patterns - generate likely URLs
         try {
             const commonPaths = ['/about', '/contact', '/services', '/products', '/blog', '/news', '/pricing', '/features', '/support', '/help', '/faq'];
-            const baseUrlObj = new URL(baseUrl);
+            const baseUrlObj = new URL(normalizedBaseUrl);
             commonPaths.forEach(path => {
                 const potentialUrl = `${baseUrlObj.protocol}//${baseUrlObj.hostname}${path}`;
-                allLinks.add(potentialUrl);
+                allLinks.add(normalizeUrl(potentialUrl));
             });
         } catch (e) {
             console.warn(`[PageExtractor] Common path generation failed: ${e.message}`);
@@ -372,13 +464,28 @@ class PageExtractor {
 
         const linksArray = Array.from(allLinks).filter(link => {
             try {
-                return new URL(link).hostname.replace(/^www\./, '').endsWith(baseDomain);
+                // Verifică dacă link-ul aparține domeniului
+                if (!new URL(link).hostname.replace(/^www\./, '').endsWith(baseDomain)) {
+                    return false;
+                }
+                
+                // Dacă am detectat că site-ul folosește limba, filtrează URL-urile fără limbă
+                if (this.languageDetector.siteLanguagePattern) {
+                    const hasLanguage = this.languageDetector.detectLanguageInUrl(link);
+                    const isRootUrl = new URL(link).pathname === '/';
+                    if (!hasLanguage && !isRootUrl) {
+                        console.log(`[PageExtractor] 🚫 Filtering dynamic URL without language: ${link} (site uses: ${this.languageDetector.siteLanguagePattern})`);
+                        return false;
+                    }
+                }
+                
+                return true;
             } catch (e) {
                 return false;
             }
         });
 
-        console.log(`[PageExtractor] 🔗 Enhanced extraction found ${linksArray.length} potential links`);
+        console.log(`[PageExtractor] 🔗 Enhanced extraction found ${linksArray.length} potential links (filtered by language)`);
         return linksArray;
     }
 }
